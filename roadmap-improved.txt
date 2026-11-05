@@ -1,0 +1,248 @@
+DIGI CAPSULE
+Phase 1 Roadmap & Execution Plan
+Amna ka complete scope: Contacts Page, Home Dashboard aur Warning Email/SMS Copy
+OWNER
+Amna
+INTEGRATION OWNER
+Zamin
+TIMELINE
+5 working days
+TARGET
+End of week
+
+Ek nazar mein (Summary)
+Amna teen cheezein deliver karegi: (1) Contacts page, (2) Home Dashboard, (3) 3 warning emails + 3 warning SMS ki wording.
+Development mock data par shuru hogi. Koi bhi page Zamin ki explicit approval ke baghair backend se connect nahi hoga.
+Accounts, memories, check-in timing aur delivery logic Zamin ki zimmedari hai.
+
+1. Project Overview
+Digi Capsule ek digital memory website hai. Users apni family ke liye letters, photos aur videos save karte hain, jo unke chune hue waqt par ya zaroorat parne par un ke apnon tak pohanch jate hain.
+Kaam do logon mein taqseem hai:
+Amna (Frontend + Copy)
+Contacts page
+Home dashboard (display only)
+Warning email/SMS wording
+Test checklist aur handoff
+Zamin (Backend + Delivery)
+Accounts aur authentication
+Memories, check-in scheduling
+Warning sending aur delivery logic
+Secure APIs aur final approval
+
+Zaroori rule
+Kisi bhi page ko Zamin ki approval ke baghair backend se connect nahi karna.
+
+2. Deliverables at a Glance
+Workstream
+Amna deliver karegi
+Amna ki zimmedari nahi
+Contacts
+Add / list / edit / delete screen, validation, responsive UI
+Authentication, backend business rules
+Dashboard
+Last check-in, next due, memories aur contacts lists, empty states
+Check-in action aur timing calculations
+Warnings
+3 email copies + 3 SMS copies (placeholders ke sath)
+Emails/SMS schedule karna ya bhejna
+Handoff
+Screens, copy, test checklist, agreed API fields
+Overall deployment aur delivery engine
+
+3. One-Week Execution Plan
+Din
+Kaam (Priority)
+Definition of Done
+Day 1
+Data fields aur UI layout agree karna; Contacts page design
+Contacts form + list mockup approved
+Day 2
+Contacts CRUD frontend mein banana + validation
+Add / edit / delete aur empty states mock data par kaam karein
+Day 3
+Dashboard layout aur sample cards banana
+Chaaron required sections desktop aur mobile par nazar aayein
+Day 4
+W1 / W2 / Final email aur SMS templates likhna; integration review
+Chhe (6) drafts Zamin se approved; API field contract final
+Day 5
+Approval ke baad connect karna, test, fix aur handoff
+Acceptance checklist pass; koi unauthorized integration nahi
+
+Note
+Yeh suggested sequence hai. Agar backend APIs ready na hon, to mock-data version mukammal karke Zamin ko integration handoff de diya jaye.
+
+4. Task 1: Contacts Page (Yahan se shuru karein)
+Goal: Login ke baad user apne recipients (jin ko memories jayengi) manage kar sake. Screen halki, saaf aur responsive ho.
+4.1 UI Elements
+Page title: "My Contacts"
+"Add Contact" button
+Contacts list / table, har row par edit aur delete actions
+4.2 Form Fields
+Field
+Rule
+Detail
+Name
+Required
+Khali nahi chhor sakte
+Email
+Valid format
+Format check; clear error message
+Phone
+Country code supported
+International format (jaise +92...)
+Channel rule
+Zamin se final karna
+Kam az kam ek usable delivery channel (email ya phone) lazmi ho
+4.3 Actions
+Add: Save karne par naya contact foran list mein nazar aaye.
+Edit: Form mein purana data pehle se bhara hua ho (pre-fill).
+Delete: Confirmation dialog ke baad list update ho.
+4.4 Screen States
+Empty list, form errors, save loading, save failure aur success feedback; sab states design karni hain. Mobile par table ko stacked contact cards mein convert karein.
+Mock data se development shuru karein. Zamin ki approval ke baad user-scoped API integration karein.
+
+4.5 Acceptance Tests
+Test
+Expected result
+Add 2 contacts
+Dono list mein sahi name / email / phone ke sath appear hon
+Invalid email
+Clear field error aaye; invalid save block ho
+Edit phone
+Updated phone list mein persist ho
+Delete one contact
+Confirmation ke baad sirf selected contact delete ho
+Empty state
+"No contacts" message aur Add button show ho
+Access isolation
+User kisi doosre user ke contacts access na kar sake (backend, Zamin ke sath)
+
+5. Task 2: Home Dashboard
+Goal: User ko ek nazar mein check-in aur saved records ka status samajh aa jaye. Amna sirf values display karegi; schedule calculate karna Zamin ki service ki zimmedari hai.
+5.1 Dashboard Sections
+Section
+Kya dikhana hai
+Top summary
+"Last I'm Alive" date/time aur "Next check-in due" date/time (backend se)
+Memories list
+Title, type, chosen recipients aur rule label (On this date / If I am gone)
+Contacts list
+Name aur preferred contact details, Contacts page ka shortcut
+States
+Loading indicator, empty states, error/retry experience
+Layout
+Mobile responsive
+
+I'm Alive button
+Is button ka asal check-in action Zamin own karega. Dashboard sirf button ki jagah (placement) ya navigation space de sakta hai.
+
+5.2 Dashboard Data Contract (Zamin ke sath coordinate karein)
+Field
+Source / display example
+lastCheckInAt
+Zamin API; localized date/time ya "Never checked in"
+nextCheckInDueAt
+Zamin API; localized date/time
+contacts[]
+Contact ID, name, email, phone
+memories[]
+Memory ID, title, type, rule, recipients, scheduledDate (jahan zaroori ho)
+
+6. Task 3: Warning Email aur SMS Copy
+Amna messages draft karegi. Warning ka send time, channel integration, cancellation aur delivery Zamin own karega. Har message mein user ka naam, agla qadam (next action) aur secure Digi Capsule link ke placeholders hon.
+6.1 Warning Timeline (agar fresh check-in na aaye)
+Stage
+Kab
+Amna ka asset
+Warning 1
+Check-in due miss hote hi (Day 30)
+Email #1 + SMS #1
+Warning 2
+Warning 1 ke 7 din baad (Day 37)
+Email #2 + SMS #2
+Final warning
+Warning 2 ke 7 din baad (Day 44)
+Email #3 + SMS #3
+Delivery
+Final warning ke 7 din baad (Day 51)
+Zamin eligible memories bhejega
+
+6.2 Placeholders
+Placeholder
+Matlab
+{first_name}
+User ka pehla naam
+{secure_link}
+Secure Digi Capsule sign-in link (Zamin generate karega)
+
+Suggested Message Templates
+Warning 1
+Email subject
+Digi Capsule: Check-in reminder
+Email body
+Hi {first_name}, your Digi Capsule check-in is due. Please sign in and press “I’m alive” to keep your saved memories private. Check in here: {secure_link}. If you recently checked in, no action is needed.
+SMS
+Digi Capsule: Your check-in is due. Press “I’m alive” here: {secure_link}.
+
+Warning 2
+Email subject
+Digi Capsule: Second check-in reminder
+Email body
+Hi {first_name}, we still have not received your check-in. Please sign in and press “I’m alive” so your scheduled warning process stops. Open Digi Capsule: {secure_link}.
+SMS
+Digi Capsule: Second reminder. Please check in to stop pending warnings: {secure_link}.
+
+Final Warning
+Email subject
+Digi Capsule: Final check-in warning
+Email body
+Hi {first_name}, this is your final reminder. If no check-in is received within 7 days, memories marked “If I am gone” may be sent to your selected contacts under your settings. Press “I’m alive” now to stop this: {secure_link}.
+SMS
+Digi Capsule FINAL reminder: Check in within 7 days to stop eligible memory delivery: {secure_link}.
+
+Copy approval note
+Messages mein kabhi yeh claim nahi hona chahiye ke user faut ho chuka hai.
+Timing, fallback handling aur consent/safety review Zamin ki zimmedari hai.
+
+7. Integration aur Ownership Rules
+Amna shuru mein frontend ko mock data / agreed API types par banayegi.
+Kisi bhi page ko connect karne se pehle: Zamin ko screen link, required endpoints, field names aur test cases bhejein aur explicit approval maangein.
+Zamin authentication context aur secure endpoints dega. Frontend code mein secret API keys store nahi karni.
+Contacts create / edit / delete sirf logged-in user tak scoped hon.
+Memories aur dashboard data sirf authorized APIs ke zariye access hon.
+Tamam warning templates: placeholder review, readability review aur final sign-off ke baad hi Zamin send schedule karega.
+
+8. Open Questions for Zamin
+Yeh points Day 1 se Day 4 ke darmiyan Zamin se confirm karne hain taake integration mein rukawat na aaye:
+#
+Sawal
+Kab chahiye
+1
+Contact ke liye minimum delivery channel rule kya hoga (email ya phone, ya dono)?
+Day 1
+2
+Contacts aur dashboard ke API endpoints aur exact field names kya hain?
+Day 3
+3
+Phone numbers ka format aur country-code validation kahan hogi (frontend ya backend)?
+Day 2
+4
+{secure_link} kaise generate hoga aur kitni der valid rahega?
+Day 4
+5
+SMS ki length limit aur sender name ki koi pabandi hai?
+Day 4
+6
+Error codes aur retry behavior kya hoga jab API fail ho?
+Day 3
+
+9. Final Handoff Checklist
+Contacts CRUD do recipients ke sath kaam karta hai, validation aur mobile layout ke sath.
+Dashboard mein last check-in, next due, memory list, contacts list aur empty/loading/error states nazar aate hain.
+Teen email + teen SMS warning templates final aur approved hain.
+Tamam UI integration sirf Zamin ki approval se hui; unresolved APIs document kiye gaye hain.
+Smoke test: "I’m Alive" dabane se kuch deliver nahi hota. Delayed "if gone" logic aur scheduled video delivery ko Zamin staging mein test karega (accelerated test clock, asal customers ko koi message nahi).
+10. Full Flowchart: Amna ke Tasks + Zamin Handoff
+Rang guide:  Neela = assigned steps / integration   Peela = decisions   Hara = approved actions   Laal = Zamin delivery stage
+

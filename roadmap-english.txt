@@ -1,0 +1,195 @@
+DIGI CAPSULE
+Phase 1 Roadmap & Execution Plan
+Amna’s complete scope: Contacts Page, Home Dashboard, and Warning Email/SMS Wording.
+OWNER
+INTEGRATION OWNER
+TIMELINE
+TARGET
+Amna
+Zamin
+5 working days
+End of the week
+Executive Summary
+Amna will deliver three workstreams: (1) a Contacts page, (2) a Home Dashboard, and (3) the wording for three warning emails and three warning SMS messages. Development starts with mock data. Amna must obtain Zamin’s explicit approval before connecting any page to his backend. Accounts, memories, check-in schedules, warning dispatch, and delivery logic are owned by Zamin.
+1. Project Overview
+Digi Capsule is a digital memory website. People save letters, photos, and videos for their families. Memories are delivered either on a chosen date or through the defined missed-check-in warning process.
+Amna — Frontend and Copy
+Zamin — Backend and Delivery
+Contacts page
+Accounts and authentication
+Home dashboard (display only)
+Memories and check-in scheduling
+Warning email and SMS wording
+Warning dispatch and memory delivery
+Testing checklist and handoff
+Secure APIs and final integration approval
+Important rule: Never connect Amna’s pages to the backend without Zamin’s explicit approval.
+2. Deliverables at a Glance
+Workstream
+Amna delivers
+Not Amna’s responsibility
+Contacts
+Add, list, edit, and delete screens; validation; responsive UI
+Authentication and backend business rules
+Dashboard
+Last check-in, next due date, memory and contact lists, empty states
+Check-in action and due-date calculation
+Warnings
+Three email drafts and three SMS drafts with placeholders
+Scheduling or sending email and SMS
+Handoff
+Screens, copy, tests, agreed API fields
+Overall deployment and delivery engine
+3. One-Week Execution Plan
+Day
+Main work
+Definition of done
+Day 1
+Agree on contact fields and UI layout; design the Contacts page
+Contacts form and list mockup approved
+Day 2
+Implement frontend contact create/read/update/delete and validation
+Add/edit/delete and empty states work with mock data
+Day 3
+Build dashboard layout and example cards
+All four dashboard sections work on desktop and mobile
+Day 4
+Write W1/W2/Final email and SMS drafts; review API fields
+Six drafts approved by Zamin; API field contract agreed
+Day 5
+Integrate only after approval; test, fix and hand off
+Acceptance tests pass; no unauthorized integration
+If backend APIs are not ready, finish the mock-data version and hand it to Zamin for later integration.
+4. Task 1: Contacts Page — Start Here
+Goal: Let signed-in users manage the people who may receive their memories. Keep the screen clean, simple, and responsive.
+4.1 UI Elements
+Page heading: “My Contacts”.
+Primary button: “Add Contact”.
+Contacts list or table with Edit and Delete actions for each entry.
+4.2 Form Fields
+Field
+Rule
+Details
+Name
+Required
+Cannot be blank.
+Email
+Valid format
+Show a clear inline error for invalid addresses.
+Phone
+Country code supported
+Accept international numbers, such as +92…
+Delivery channel
+Confirm with Zamin
+Agree whether email, phone or both are required; at least one usable delivery channel is recommended.
+4.3 Actions
+Add: Once saved, the new contact immediately appears in the list.
+Edit: Open a form prefilled with the existing details.
+Delete: Require confirmation, then update the list.
+4.4 Screen States
+Support an empty list, field validation errors, saving/loading state, save failure and success feedback. On mobile, replace the table with stacked contact cards. Begin using mock data; connect user-scoped APIs only after Zamin approves.
+4.5 Acceptance Tests
+Test
+Expected result
+Add two contacts
+Both appear with the correct name, email and phone.
+Enter invalid email
+Clear inline error; invalid data cannot be saved.
+Edit a phone number
+Updated number persists in the list.
+Delete a contact
+Only the selected contact is deleted after confirmation.
+Empty list
+“No contacts” message and Add Contact button appear.
+Access isolation
+A user cannot view or modify another user’s contacts; verify with Zamin’s backend.
+5. Task 2: Home Dashboard
+Goal: Let the user understand check-in and saved-memory status at a glance. Amna displays backend-provided values; Zamin owns schedule calculations.
+5.1 Dashboard Sections
+Section
+What to display
+Top summary
+“Last I’m Alive” date/time and “Next check-in due” date/time from the backend.
+Memories list
+Title, media type, selected recipients and rule (“On this date” / “If I am gone”).
+Contacts list
+Name, contact details and a link to the Contacts page.
+States
+Loading, empty and error/retry views.
+Layout
+Responsive desktop and mobile layout.
+The “I’m Alive” button action belongs to Zamin. Amna may reserve its location on the dashboard, but must not implement check-in or delivery logic.
+5.2 Dashboard Data Contract
+Field
+Source / display rule
+lastCheckInAt
+Zamin API; localized date/time or “Never checked in”.
+nextCheckInDueAt
+Zamin API; localized date/time.
+contacts[]
+Contact ID, name, email, phone.
+memories[]
+Memory ID, title, type, rule, recipients and scheduledDate when applicable.
+6. Task 3: Warning Email and SMS Wording
+Amna writes the messages. Zamin owns send times, channel setup, cancellation and delivery. Each draft uses the person’s first name, a clear action and a secure Digi Capsule link.
+6.1 Warning Timeline — If No New Check-In Occurs
+Stage
+When
+Amna’s asset
+Warning 1
+As soon as the 30-day check-in is missed (Day 30)
+Email 1 + SMS 1
+Warning 2
+Seven days after Warning 1 (Day 37)
+Email 2 + SMS 2
+Final Warning
+Seven days after Warning 2 (Day 44)
+Email 3 + SMS 3
+Delivery
+Seven days after Final Warning (Day 51)
+Zamin sends eligible memories
+6.2 Placeholders
+Placeholder
+Meaning
+{first_name}
+Recipient’s first name.
+{secure_link}
+Secure sign-in link created by Zamin.
+6.3 Suggested Message Templates
+Warning 1
+Email subject: Digi Capsule: Check-in reminder
+Email body: Hi {first_name}, your Digi Capsule check-in is due. Please sign in and press “I’m alive” to keep your saved memories private. Check in here: {secure_link}. If you recently checked in, no action is needed.
+SMS: Digi Capsule: Your check-in is due. Press “I’m alive” here: {secure_link}.
+Warning 2
+Email subject: Digi Capsule: Second check-in reminder
+Email body: Hi {first_name}, we still have not received your check-in. Please sign in and press “I’m alive” so your scheduled warning process stops. Open Digi Capsule: {secure_link}.
+SMS: Digi Capsule: Second reminder. Please check in to stop pending warnings: {secure_link}.
+Final Warning
+Email subject: Digi Capsule: Final check-in warning
+Email body: Hi {first_name}, this is your final reminder. If no check-in is received within 7 days, memories marked “If I am gone” may be sent to your selected contacts under your settings. Press “I’m alive” now to stop this: {secure_link}.
+SMS: Digi Capsule FINAL reminder: Check in within 7 days to stop eligible memory delivery: {secure_link}.
+Approval note: Messages must never state that the user has died. Zamin is responsible for reviewing timing, fallback procedures, consent and safety before any messages are sent.
+7. Integration and Ownership Rules
+Build the frontend first with mock data and agreed API types.
+Before connecting a page, share its preview, needed endpoints, fields and test cases with Zamin, and get explicit approval.
+Zamin provides authentication context and secure endpoints. Never store secret API keys in the frontend.
+Create/edit/delete operations must be restricted to the authenticated user.
+Access memories and dashboard data only through authorized APIs.
+Warning templates require placeholder, readability and final approval before Zamin schedules them.
+8. Final Handoff Checklist
+Contacts create/edit/delete works with two recipients, field validation and mobile layouts.
+Dashboard shows the last check-in, next due date, memories, contacts, and empty/loading/error states.
+All three email and all three SMS templates are finalized and approved.
+All integrations have Zamin’s approval; unresolved APIs are documented.
+Smoke test: pressing “I’m Alive” sends nothing. Zamin tests delayed “If I am gone” delivery and scheduled video delivery using an accelerated staging clock without sending actual customer messages.
+
+10. Full Flowchart: Amna’s Tasks and Zamin Handoff
+Color key: Blue = assigned or integration steps; Yellow = decisions; Green = approved actions; Red = Zamin-owned delivery stage.
+
+
+10. Full Flowchart (Continued — Part 2 of 3)
+
+
+10. Full Flowchart (Continued — Part 3 of 3)
+
+Note: “On this date” memories always remain scheduled for their specific date. A new “I’m Alive” check-in cancels pending warnings before delivery and restarts the 30-day cycle.
