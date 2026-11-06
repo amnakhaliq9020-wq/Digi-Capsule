@@ -22,9 +22,11 @@ data/
 
 # Logs and OS files
 *.log
+test-results.txt
 .DS_Store
 Thumbs.db
 
-# Uploads must never live in the repo
+# Uploads and local private storage must never live in the repo
 tmp/
 uploads/
+var/

@@ -1,59 +1,95 @@
 # Digi Capsule
 
-Digi Capsule is a private place to keep personal memories for yourself and the people you love. Memories stay as drafts until you decide what happens next. Saving a memory does not send it to anyone or schedule a release.
+Private digital legacy platform. This repository now contains the Phase 1 application plus the original planning roadmap in [docs/roadmap/README.md](docs/roadmap/README.md).
 
-## What you can do
+A missed check-in means the author has not confirmed they can still sign in. It does not send memories. Death-related delivery is implemented only as a development simulation and is forced off when `NODE_ENV=production`.
 
-- Create an account and sign in.
-- Create capsules, then add memories inside them.
-- Write a personal letter, or upload a photo, video, audio file, or document.
-- Save a memory as a draft, edit it later, or delete it after confirmation.
-- Save up to two recipient contacts. Recipients cannot open your private memories.
+Phase 1 is one application. The landing page explains that. After sign-up, a person can add contacts with a name, email, and phone, save a letter or video as **Send on a date** or **If I am gone**, and press **I'm Alive**. The dashboard shows the last check-in, the next due time, and the memory and contact lists. Warning email and SMS wording is on the warning history page. Email is what the worker sends. SMS is not sent in this phase.
 
-## Requirements
+## What you need
 
-- Node.js 20 or newer
-- npm
+- Node.js 22 or newer
+- Docker Desktop, for PostgreSQL
+- npm (workspaces are used so another machine does not need pnpm)
 
-The development database is a local PostgreSQL instance started by the project. You do not need to install PostgreSQL separately.
+## First-time setup
 
-## Run the app
+From the repository root:
 
 ```bash
 npm install
+npm run init-env
+docker compose up -d
+npm run db:migrate
+npm run db:seed
+```
+
+`npm run init-env` creates `.env` only when it is missing and generates a local `DATA_ENCRYPTION_KEY`. Do not commit `.env`.
+
+The database user in Docker is `digi` / `digi` on `localhost:5432`, database `digi_capsule`. That password is for the local container only.
+
+## Run the application
+
+```bash
 npm run dev
 ```
 
-- Web app: http://127.0.0.1:3000
-- API: http://127.0.0.1:3001
+- Web: http://localhost:3000
+- API: http://localhost:3001
+- Health: http://localhost:3001/v1/health
 
-Create an account from the home page, then use **+ Create Memory**.
+The browser talks to the API through a Next.js rewrite of `/v1/*`, so the session cookie stays on the web origin.
 
-Copy `apps/api/.env.example` to `apps/api/.env` if you want to change the database URL or session secret. `npm run dev` supplies the local database URL when you start it from the project root.
+In another terminal:
+
+```bash
+npm run worker
+```
+
+The worker uses pg-boss and runs a tick every minute. During development you can also run one tick from the test console without waiting.
 
 ## Tests
+
+PostgreSQL must be running.
 
 ```bash
 npm test
 ```
 
-This starts the local database, runs the API tests, and runs the browser tests.
+API tests create `digi_capsule_test` on the same Postgres server and apply migrations there. Override the URL with `TEST_DATABASE_URL` if port 5432 is not the Docker database.
 
-## Project layout
+## Development test clock
 
-- `apps/web` — Next.js interface
-- `apps/api` — NestJS API, Prisma models, and private file storage
-- `scripts` — local database and development commands
+`.env.example` sets `DIGI_TEST_MODE=true` for local development. The test console at http://localhost:3000/dev can move a simulated clock and run the worker. That route returns 404 when test mode is off, and test mode is ignored entirely when `NODE_ENV=production`.
 
-Uploaded files are stored privately on disk. They are not published as public URLs.
+`VERIFICATION_RELEASES_ENABLED` defaults to `false`. Even if it is set to `true`, content release from a review is refused in production.
 
-## File limits
+Use synthetic addresses such as `person@example.test`. Do not load real family memories or contacts.
 
-These defaults can be changed with environment variables:
+## Optional cloud storage
 
-| Kind | Default | Setting |
-| --- | --- | --- |
-| Photo (JPG, JPEG, PNG) | 10 MB | `MEDIA_PHOTO_MAX_BYTES` |
-| Video (MP4, MOV, WEBM) | 100 MB | `MEDIA_VIDEO_MAX_BYTES` |
-| Audio (MP3, WAV, M4A, OGG, WEBM) | 25 MB | `MEDIA_AUDIO_MAX_BYTES` |
-| Document (PDF, DOC, DOCX, TXT) | 20 MB | `MEDIA_DOCUMENT_MAX_BYTES` |
+Leave `STORAGE_DRIVER=local` to store files under `apps/api/var/storage` (gitignored). Files are downloaded only through an authenticated API route. There is no permanent public URL.
+
+To use S3, Cloudflare R2, or another S3-compatible service later, set:
+
+```text
+STORAGE_DRIVER=s3
+S3_ENDPOINT=https://your-endpoint
+S3_REGION=auto
+S3_BUCKET=your-private-bucket
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
+S3_FORCE_PATH_STYLE=true
+```
+
+Block public access on the bucket. The API still checks ownership before streaming a file.
+
+## Seed data
+
+`npm run db:seed` checks the database and creates no people. Set `SEED_DEMO=true` to add `demo.author@example.test`. The password is `SEED_DEMO_PASSWORD` (default `Change-Me-Demo-1`). It is a fake account.
+
+## More detail
+
+- API reference: [docs/api.md](docs/api.md)
+- Product roadmap: [docs/roadmap/README.md](docs/roadmap/README.md)
+- If setup fails: [docs/troubleshooting.md](docs/troubleshooting.md)

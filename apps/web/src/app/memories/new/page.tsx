@@ -1,13 +1,8 @@
-import { Suspense } from 'react';
-import type { Metadata } from 'next';
-import { MemoryForm } from '@/components/MemoryForm';
+"use client";
 
-export const metadata: Metadata = { title: 'Create memory · Digi Capsule' };
+import { Shell } from "@/components/Shell";
+import { MemoryForm } from "@/components/MemoryForm";
 
 export default function NewMemoryPage() {
-  return (
-    <Suspense fallback={<p>Loading the memory form…</p>}>
-      <MemoryForm />
-    </Suspense>
-  );
+  return <Shell><h1>Create a memory</h1><MemoryForm /></Shell>;
 }
