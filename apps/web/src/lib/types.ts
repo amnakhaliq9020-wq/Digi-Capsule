@@ -16,6 +16,24 @@ export type Contact = {
   updatedAt: string;
 };
 
+export type WarningMessage = {
+  id: 'first' | 'second' | 'final';
+  title: string;
+  afterDays: number;
+  dueAt: string;
+  status: 'waiting' | 'due';
+  emailSubject: string;
+  emailBody: string;
+  smsBody: string;
+};
+
+export type CheckInStatus = {
+  lastCheckInAt: string | null;
+  nextCheckInAt: string;
+  intervalDays: number;
+  warnings: WarningMessage[];
+};
+
 export type ContactInput = {
   fullName: string;
   email: string;

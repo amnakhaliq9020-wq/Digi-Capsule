@@ -299,4 +299,62 @@ describe('Memories (e2e)', () => {
     expect(stored.status).toBe('DRAFT');
     expect(await prisma.contact.count()).toBe(0);
   });
+
+  it('records a check-in without releasing memories', async () => {
+    const agent = await register('checkin@example.com');
+    const before = await agent.get('/check-in');
+    expect(before.status).toBe(200);
+    expect(before.body.lastCheckInAt).toBeNull();
+    expect(new Date(before.body.nextCheckInAt).getTime()).toBeGreaterThan(Date.now());
+
+    const confirmed = await agent.post('/check-in').send({});
+    expect(confirmed.status).toBe(201);
+    expect(confirmed.body.lastCheckInAt).toEqual(expect.any(String));
+    const next = new Date(confirmed.body.nextCheckInAt).getTime();
+    const last = new Date(confirmed.body.lastCheckInAt).getTime();
+    expect(next - last).toBeGreaterThan(29 * 24 * 60 * 60 * 1000);
+    expect(confirmed.body.warnings.map((warning: { id: string; afterDays: number; status: string }) => [warning.id, warning.afterDays, warning.status])).toEqual([
+      ['first', 7, 'waiting'],
+      ['second', 14, 'waiting'],
+      ['final', 21, 'waiting'],
+    ]);
+
+    const savedCapsule = await capsule(agent);
+    const created = await agent.post('/memories').send({
+      title: 'Still private',
+      type: 'LETTER',
+      body: 'A check-in must not send this.',
+      capsuleId: savedCapsule.id,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe('DRAFT');
+    expect((await agent.get('/check-in')).body.lastCheckInAt).toBeTruthy();
+  });
+
+  it('uses the first warning only after 7 days without a response', async () => {
+    const agent = await register('warnings@example.com');
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: 'warnings@example.com' } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastCheckInAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000) },
+    });
+
+    const quiet = await agent.get('/check-in');
+    expect(quiet.status).toBe(200);
+    const byId = Object.fromEntries(quiet.body.warnings.map((warning: { id: string; status: string }) => [warning.id, warning.status]));
+    expect(byId.first).toBe('due');
+    expect(byId.second).toBe('waiting');
+    expect(byId.final).toBe('waiting');
+    expect(quiet.body.warnings[0].afterDays).toBe(7);
+    expect(quiet.body.warnings[0].emailBody).toContain('does not send your memories');
+
+    const savedCapsule = await capsule(agent);
+    const created = await agent.post('/memories').send({
+      title: 'Still private',
+      type: 'LETTER',
+      body: 'A warning must not send this.',
+      capsuleId: savedCapsule.id,
+    });
+    expect(created.body.status).toBe('DRAFT');
+  });
 });

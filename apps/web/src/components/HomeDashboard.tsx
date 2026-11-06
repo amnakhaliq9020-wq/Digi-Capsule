@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ApiError, api } from '@/lib/api';
 import { useSession } from '@/components/SessionProvider';
-import { MemoryStatus, MemorySummary, MemoryType, STATUS_LABEL, TYPE_LABEL } from '@/lib/types';
+import { CheckInStatus, Contact, MemoryStatus, MemorySummary, MemoryType, STATUS_LABEL, TYPE_LABEL } from '@/lib/types';
 
 const notices: Record<string, string> = {
   saved: 'Memory saved as a draft. It has not been sent to anyone.',
@@ -18,6 +18,9 @@ export function HomeDashboard() {
   const params = useSearchParams();
   const { status, user } = useSession();
   const [memories, setMemories] = useState<MemorySummary[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [checkIn, setCheckIn] = useState<CheckInStatus | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState('');
@@ -35,16 +38,19 @@ export function HomeDashboard() {
     }
     if (status !== 'authenticated') return;
     let cancelled = false;
-    api<MemorySummary[]>('/api/memories')
-      .then((items) => {
-        if (!cancelled) setMemories(items);
+    Promise.all([api<MemorySummary[]>('/api/memories'), api<Contact[]>('/api/contacts'), api<CheckInStatus>('/api/check-in')])
+      .then(([items, people, status]) => {
+        if (cancelled) return;
+        setMemories(items);
+        setContacts(people);
+        setCheckIn(status);
       })
       .catch((reason: unknown) => {
         if (reason instanceof ApiError && reason.status === 401) {
           router.replace('/login');
           return;
         }
-        if (!cancelled) setError('We could not load your memories. Please try again.');
+        if (!cancelled) setError('We could not load your home. Please try again.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -53,6 +59,20 @@ export function HomeDashboard() {
       cancelled = true;
     };
   }, [status, router]);
+
+  async function confirmCheckIn() {
+    setError('');
+    setConfirming(true);
+    try {
+      const next = await api<CheckInStatus>('/api/check-in', { method: 'POST' });
+      setCheckIn(next);
+      setBanner('Check-in recorded. Nothing was sent.');
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : 'The check-in could not be saved.');
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   async function remove(id: string) {
     setError('');
@@ -126,6 +146,76 @@ export function HomeDashboard() {
           {error}
         </p>
       ) : null}
+
+      <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="rounded-3xl border border-line bg-card p-5 shadow-card" data-testid="next-check-in">
+          <h2 className="font-serif text-2xl font-semibold">Next check-in</h2>
+          <p className="mt-2 text-lg font-semibold" data-testid="next-check-in-date">
+            {checkIn ? formatDate(checkIn.nextCheckInAt) : 'Date unavailable'}
+          </p>
+          <p className="mt-1 text-sm text-ink/70">
+            {checkIn?.lastCheckInAt ? `Last confirmation ${formatDate(checkIn.lastCheckInAt)}.` : 'You have not confirmed yet.'}
+          </p>
+          <p className="mt-3 text-sm leading-6 text-ink/75">
+            Confirming only records that you are reachable. It does not send memories. A missed check-in does not release anything.
+          </p>
+          <button
+            type="button"
+            className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-tide px-5 font-semibold text-white disabled:opacity-60"
+            data-testid="confirm-check-in"
+            disabled={confirming}
+            onClick={() => void confirmCheckIn()}
+          >
+            {confirming ? 'Saving…' : "I'm here"}
+          </button>
+        </section>
+
+        <section className="rounded-3xl border border-line bg-card p-5 shadow-card" data-testid="home-contacts">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-serif text-2xl font-semibold">Contacts</h2>
+            <Link href="/contacts" className="text-sm font-semibold text-tide">
+              Manage
+            </Link>
+          </div>
+          {contacts.length === 0 ? (
+            <p className="mt-3 text-sm leading-6 text-ink/75">No contacts yet. Add up to two people who may receive your memories later.</p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {contacts.map((contact) => (
+                <li key={contact.id} className="min-w-0" data-testid="home-contact">
+                  <p className="break-words font-semibold">{contact.fullName}</p>
+                  <p className="break-all text-sm text-ink/70">{contact.email}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <section className="mt-4 rounded-3xl border border-line bg-card p-5 shadow-card" data-testid="warning-messages">
+        <h2 className="font-serif text-2xl font-semibold">Warning messages</h2>
+        <p className="mt-2 text-sm leading-6 text-ink/75">
+          If there is no response, the first message is used 7 days after the check-in date. The second follows 7 days later, and the final message 7 days after that. These messages do not send memories.
+        </p>
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {(checkIn?.warnings ?? []).map((warning) => (
+            <article key={warning.id} className="min-w-0 rounded-2xl bg-paper p-4" data-testid={`warning-${warning.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-semibold">{warning.title}</h3>
+                <span className="shrink-0 rounded-full bg-mist px-3 py-1 text-xs font-semibold uppercase tracking-wide text-tide">
+                  {warning.status === 'due' ? 'Due' : 'Waiting'}
+                </span>
+              </div>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink/50">
+                {warning.afterDays} days after a missed check-in · {formatDate(warning.dueAt)}
+              </p>
+              <p className="mt-3 text-sm font-semibold">{warning.emailSubject}</p>
+              <p className="mt-2 text-sm leading-6 text-ink/75">{warning.emailBody}</p>
+              <p className="mt-3 text-sm leading-6 text-ink/70">Text: {warning.smsBody}</p>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <div className="mt-10">
         <h2 className="font-serif text-3xl font-semibold">My Memories</h2>

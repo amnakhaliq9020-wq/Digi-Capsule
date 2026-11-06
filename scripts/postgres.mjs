@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -23,14 +24,16 @@ function canConnect(port) {
 }
 
 async function createDatabase(pg, name) {
+  const client = pg.getPgClient();
+  await client.connect();
   try {
-    await pg.createDatabase(name);
-    console.log(`Created database ${name}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/already exists/i.test(message)) return;
-    throw error;
+    const existing = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+    if (existing.rowCount) return;
+  } finally {
+    await client.end();
   }
+  await pg.createDatabase(name);
+  console.log(`Created database ${name}`);
 }
 
 export async function startPostgres() {
@@ -39,8 +42,9 @@ export async function startPostgres() {
     return { stop: async () => {}, started: false };
   }
 
+  const databaseDir = path.join(root, 'data', 'pg');
   const pg = new EmbeddedPostgres({
-    databaseDir: path.join(root, 'data', 'pg'),
+    databaseDir,
     user: 'postgres',
     password: 'postgres',
     port: POSTGRES_PORT,
@@ -50,11 +54,8 @@ export async function startPostgres() {
     onError: (message) => console.error(message),
   });
 
-  try {
+  if (!fs.existsSync(path.join(databaseDir, 'PG_VERSION'))) {
     await pg.initialise();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/already|not empty/i.test(message)) throw error;
   }
 
   await pg.start();

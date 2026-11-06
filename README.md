@@ -2,8 +2,6 @@
 
 Digi Capsule is a private place to keep personal memories for yourself and the people you love. Memories stay as drafts until you decide what happens next. Saving a memory does not send it to anyone or schedule a release.
 
-The product roadmap is in [docs/roadmap/README.md](docs/roadmap/README.md).
-
 ## What you can do
 
 - Create an account and sign in.
@@ -46,7 +44,6 @@ This starts the local database, runs the API tests, and runs the browser tests.
 - `apps/web` — Next.js interface
 - `apps/api` — NestJS API, Prisma models, and private file storage
 - `scripts` — local database and development commands
-- `docs/roadmap` — product and technical planning documents
 
 Uploaded files are stored privately on disk. They are not published as public URLs.
 
