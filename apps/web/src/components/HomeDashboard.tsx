@@ -73,8 +73,8 @@ export function HomeDashboard() {
   if (status !== 'authenticated' || !user) {
     return (
       <section className="max-w-2xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-tide">Digi Capsule</p>
-        <h1 className="mt-3 font-serif text-4xl font-semibold tracking-tight sm:text-5xl">
+        <img src="/logo.png" alt="Digi Capsule" width={96} height={96} className="h-24 w-24 rounded-3xl" />
+        <h1 className="mt-4 font-serif text-4xl font-semibold tracking-tight sm:text-5xl">
           Your memories, safely kept for the moments that matter.
         </h1>
         <p className="mt-4 text-base leading-7 text-ink/75">

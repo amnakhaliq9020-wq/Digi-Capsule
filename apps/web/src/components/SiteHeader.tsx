@@ -42,8 +42,10 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-card/95 backdrop-blur">
       <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-3 px-4">
-        <Link href="/" className="flex min-w-0 items-center gap-2 text-ink">
-          <CapsuleMark className="h-8 w-8 shrink-0" />
+        <Link href="/" className="flex min-w-0 items-center gap-2.5 text-ink">
+          <span className="relative block h-11 w-11 shrink-0 overflow-hidden rounded-xl">
+            <img src="/logo.png" alt="" width={44} height={44} className="absolute left-0 top-0 w-11 max-w-none origin-top scale-[1.24]" />
+          </span>
           <span className="truncate font-serif text-lg font-semibold tracking-tight">Digi Capsule</span>
         </Link>
 
@@ -124,12 +126,3 @@ export function SiteHeader() {
   );
 }
 
-export function CapsuleMark({ className, label }: { className?: string; label?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 64 64" role={label ? 'img' : 'presentation'} aria-label={label} aria-hidden={label ? undefined : true}>
-      <rect width="64" height="64" rx="18" fill="#1f5c57" />
-      <path d="M18 34c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14Z" fill="#f4f0e8" />
-      <path d="M26 34h12M32 28v12" stroke="#1f5c57" strokeWidth="2.5" strokeLinecap="round" />
-    </svg>
-  );
-}
