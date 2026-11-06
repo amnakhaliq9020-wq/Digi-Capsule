@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+apps/api/.env
+apps/web/.env.local
 
 # Dependencies and build output
 node_modules/
@@ -10,6 +12,13 @@ build/
 .next/
 out/
 coverage/
+playwright-report/
+test-results/
+apps/web/blob-report/
+*.tsbuildinfo
+
+# Local database and private media
+data/
 
 # Logs and OS files
 *.log
