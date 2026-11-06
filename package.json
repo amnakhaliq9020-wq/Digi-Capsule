@@ -1,0 +1,27 @@
+{
+  "name": "digi-capsule",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Private digital legacy platform. Phase 1 application.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "init-env": "node scripts/init-env.mjs",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @digi/api\" \"npm run dev -w @digi/web\"",
+    "worker": "npm run worker -w @digi/api",
+    "db:generate": "npm run generate -w @digi/db",
+    "db:migrate": "node scripts/with-root-env.mjs npx prisma migrate deploy --schema packages/db/prisma/schema.prisma",
+    "db:seed": "node scripts/with-root-env.mjs npx tsx packages/db/prisma/seed.ts",
+    "test": "npm run test -w @digi/domain && npm run test -w @digi/api",
+    "test:domain": "npm run test -w @digi/domain",
+    "test:api": "npm run test -w @digi/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

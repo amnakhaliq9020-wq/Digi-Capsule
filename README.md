@@ -1,15 +1,93 @@
 # Digi Capsule
 
-Private digital legacy platform for preserving messages, photos, video, audio, and personal stories, and sharing them with chosen people on a schedule or after a careful release-authorization process.
+Private digital legacy platform. This repository now contains the Phase 1 application plus the original planning roadmap in [docs/roadmap/README.md](docs/roadmap/README.md).
 
-This repository currently contains the product roadmap only. Application code has not been started.
+A missed check-in means the author has not confirmed they can still sign in. It does not send memories. Death-related delivery is implemented only as a development simulation and is forced off when `NODE_ENV=production`.
 
-## Start here
+## What you need
 
-Read [docs/roadmap/README.md](docs/roadmap/README.md) for the executive summary and document index.
+- Node.js 22 or newer
+- Docker Desktop, for PostgreSQL
+- npm (workspaces are used so another machine does not need pnpm)
 
-## Status
+## First-time setup
 
-- Repository audit: no existing application code, framework, database, or tests were present.
-- Planning date: 2026-11-03.
-- Implementation: not started. Do not treat the roadmap as a promise that death can be proved, or that a missed check-in releases private content.
+From the repository root:
+
+```bash
+npm install
+npm run init-env
+docker compose up -d
+npm run db:migrate
+npm run db:seed
+```
+
+`npm run init-env` creates `.env` only when it is missing and generates a local `DATA_ENCRYPTION_KEY`. Do not commit `.env`.
+
+The database user in Docker is `digi` / `digi` on `localhost:5432`, database `digi_capsule`. That password is for the local container only.
+
+## Run the application
+
+```bash
+npm run dev
+```
+
+- Web: http://localhost:3000
+- API: http://localhost:3001
+- Health: http://localhost:3001/v1/health
+
+The browser talks to the API through a Next.js rewrite of `/v1/*`, so the session cookie stays on the web origin.
+
+In another terminal:
+
+```bash
+npm run worker
+```
+
+The worker uses pg-boss and runs a tick every minute. During development you can also run one tick from the test console without waiting.
+
+## Tests
+
+PostgreSQL must be running.
+
+```bash
+npm test
+```
+
+API tests create `digi_capsule_test` on the same Postgres server and apply migrations there. Override the URL with `TEST_DATABASE_URL` if port 5432 is not the Docker database.
+
+## Development test clock
+
+`.env.example` sets `DIGI_TEST_MODE=true` for local development. The test console at http://localhost:3000/dev can move a simulated clock and run the worker. That route returns 404 when test mode is off, and test mode is ignored entirely when `NODE_ENV=production`.
+
+`VERIFICATION_RELEASES_ENABLED` defaults to `false`. Even if it is set to `true`, content release from a review is refused in production.
+
+Use synthetic addresses such as `person@example.test`. Do not load real family memories or contacts.
+
+## Optional cloud storage
+
+Leave `STORAGE_DRIVER=local` to store files under `apps/api/var/storage` (gitignored). Files are downloaded only through an authenticated API route. There is no permanent public URL.
+
+To use S3, Cloudflare R2, or another S3-compatible service later, set:
+
+```text
+STORAGE_DRIVER=s3
+S3_ENDPOINT=https://your-endpoint
+S3_REGION=auto
+S3_BUCKET=your-private-bucket
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
+S3_FORCE_PATH_STYLE=true
+```
+
+Block public access on the bucket. The API still checks ownership before streaming a file.
+
+## Seed data
+
+`npm run db:seed` checks the database and creates no people. Set `SEED_DEMO=true` to add `demo.author@example.test`. The password is `SEED_DEMO_PASSWORD` (default `Change-Me-Demo-1`). It is a fake account.
+
+## More detail
+
+- API reference: [docs/api.md](docs/api.md)
+- Product roadmap: [docs/roadmap/README.md](docs/roadmap/README.md)
+- If setup fails: [docs/troubleshooting.md](docs/troubleshooting.md)
