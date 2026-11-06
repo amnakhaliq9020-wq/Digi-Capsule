@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ApiError, api } from '@/lib/api';
 import { useSession } from '@/components/SessionProvider';
 import { ACCEPT, fileError, uploadFile } from '@/lib/upload';
@@ -13,6 +13,9 @@ type LocalAsset = MediaAsset & { progress?: number };
 
 export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const requestedCapsule = params.get('capsule');
+  const requestedType = params.get('type');
   const { status } = useSession();
   const [capsules, setCapsules] = useState<Capsule[]>([]);
   const [capsuleId, setCapsuleId] = useState('');
@@ -86,10 +89,13 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
             }),
           );
         } else {
-          const first = capsuleList[0]?.id ?? '';
+          const nextType = types.includes(requestedType as MemoryType) ? (requestedType as MemoryType) : 'LETTER';
+          const ownsRequested = capsuleList.some((capsule) => capsule.id === requestedCapsule);
+          const first = ownsRequested && requestedCapsule ? requestedCapsule : (capsuleList[0]?.id ?? '');
           setCapsuleId(first);
+          setType(nextType);
           setNewCapsule(capsuleList.length === 0);
-          setBaseline(JSON.stringify({ capsuleId: first, type: 'LETTER', title: '', description: '', body: '', tags: '', assets: [] }));
+          setBaseline(JSON.stringify({ capsuleId: first, type: nextType, title: '', description: '', body: '', tags: '', assets: [] }));
         }
       } catch (reason) {
         if (reason instanceof ApiError && reason.status === 401) {
@@ -106,7 +112,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [memoryId, router, status]);
+  }, [memoryId, requestedCapsule, requestedType, router, status]);
 
   async function createCapsule(event?: FormEvent) {
     event?.preventDefault();
@@ -338,7 +344,16 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
       ) : (
         <div className="mt-4 rounded-3xl border border-dashed border-line bg-card p-5">
           <label className="block cursor-pointer">
-            <span className="font-semibold">Upload {TYPE_LABEL[type].toLowerCase()}</span>
+            <span className="font-semibold">{type === 'PHOTO' ? 'Upload images' : `Upload ${TYPE_LABEL[type].toLowerCase()}`}</span>
+            <span className="mt-1 block text-sm font-normal leading-6 text-ink/70">
+              {type === 'PHOTO'
+                ? 'Choose one or more JPG or PNG pictures. You can remove any image before saving.'
+                : type === 'VIDEO'
+                  ? 'Choose an MP4, MOV, or WEBM video.'
+                  : type === 'AUDIO'
+                    ? 'Choose an MP3, WAV, M4A, OGG, or WEBM recording.'
+                    : 'Choose a PDF, DOC, DOCX, or TXT file.'}
+            </span>
             <input
               className="mt-3 block w-full text-sm"
               type="file"

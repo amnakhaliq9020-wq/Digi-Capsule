@@ -1,10 +1,19 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ApiError, api } from '@/lib/api';
 import { useSession } from '@/components/SessionProvider';
-import { Capsule } from '@/lib/types';
+import { Capsule, MemoryType } from '@/lib/types';
+
+const memoryChoices: { type: MemoryType; label: string }[] = [
+  { type: 'PHOTO', label: 'Add photos' },
+  { type: 'VIDEO', label: 'Add a video' },
+  { type: 'AUDIO', label: 'Add audio' },
+  { type: 'DOCUMENT', label: 'Add a document' },
+  { type: 'LETTER', label: 'Write a letter' },
+];
 
 export function CapsuleManager() {
   const router = useRouter();
@@ -41,7 +50,7 @@ export function CapsuleManager() {
       setCapsules((current) => [{ ...created, _count: { memories: 0 } }, ...current]);
       setTitle('');
       setDescription('');
-      setMessage('Capsule created.');
+      setMessage('Capsule created. Add photos, a video, audio, a document, or a letter to it below.');
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'The capsule could not be created.');
     } finally {
@@ -55,7 +64,7 @@ export function CapsuleManager() {
     <section className="min-w-0">
       <h1 className="font-serif text-4xl font-semibold">Capsules</h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/70">
-        A capsule is a private collection. Each letter, photo, video, audio file, or document is a memory stored inside one.
+        A capsule is a private collection. After you create one, add pictures, a video, audio, a document, or a letter inside it.
       </p>
       {message ? <p className="mt-4 rounded-2xl bg-moss/10 px-4 py-3 text-sm text-moss" role="status">{message}</p> : null}
       {error ? <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-sm text-clay" role="alert">{error}</p> : null}
@@ -78,6 +87,18 @@ export function CapsuleManager() {
             <h2 className="break-words font-serif text-2xl font-semibold">{capsule.title}</h2>
             {capsule.description ? <p className="mt-2 break-words text-sm leading-6 text-ink/75">{capsule.description}</p> : null}
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink/50">{capsule._count?.memories ?? 0} memories</p>
+            <div className="mt-4 flex flex-col gap-2">
+              {memoryChoices.map((choice) => (
+                <Link
+                  key={choice.type}
+                  href={`/memories/new?capsule=${capsule.id}&type=${choice.type}`}
+                  className={`inline-flex min-h-11 items-center justify-center rounded-full px-4 text-sm font-semibold ${choice.type === 'PHOTO' ? 'bg-tide text-white' : 'border border-line bg-white'}`}
+                  data-testid={`add-${choice.type.toLowerCase()}-${capsule.id}`}
+                >
+                  {choice.label}
+                </Link>
+              ))}
+            </div>
           </article>
         ))}
       </div>
