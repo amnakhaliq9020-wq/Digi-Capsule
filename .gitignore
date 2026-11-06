@@ -1,12 +1,30 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+apps/api/.env
+apps/web/.env.local
+
+# Dependencies and build output
 node_modules/
 dist/
+build/
 .next/
-data/
+out/
 coverage/
 playwright-report/
 test-results/
-*.tsbuildinfo
-.env
-apps/api/.env
-apps/web/.env.local
 apps/web/blob-report/
+*.tsbuildinfo
+
+# Local database and private media
+data/
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Uploads must never live in the repo
+tmp/
+uploads/
