@@ -1,0 +1,526 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  active
+  pending_deletion
+  deleted
+}
+
+enum CapsuleStatus {
+  draft
+  active
+  paused
+  archived
+}
+
+enum ItemKind {
+  letter
+  photo
+  video
+  audio
+  document
+  collection
+}
+
+enum ItemStatus {
+  draft
+  scheduled
+  released
+  withheld
+  cancelled
+}
+
+enum MediaStatus {
+  pending
+  ready
+  failed
+  deleted
+}
+
+enum ContactRoleKind {
+  recipient
+  trusted_contact
+  verifier
+}
+
+enum GrantVisibility {
+  hidden
+  released_only
+}
+
+enum ReleaseTrigger {
+  exact_time
+  annual
+  recipient_age
+  embargo_until_age
+  embargo_until_time
+  after_verification
+}
+
+enum ReleaseRuleStatus {
+  active
+  paused
+  completed
+  cancelled
+}
+
+enum ReleaseJobStatus {
+  pending
+  sending
+  sent
+  failed
+  cancelled
+  dead
+}
+
+enum CheckInCycleState {
+  due
+  reminded
+  confirmed
+  missed_unreachable
+  cancelled
+}
+
+enum CheckInEventType {
+  notice_sent
+  reminder_sent
+  confirmed
+  link_expired
+  paused
+  unreachable_notice_sent
+  simulated_release_recorded
+}
+
+enum VerificationState {
+  open
+  collecting
+  cooling_off
+  cancellation_window
+  release_authorized
+  releasing
+  released
+  recovered
+  disputed
+  cancelled
+}
+
+enum AttestationPosition {
+  believe_deceased
+  reached_alive
+  unknown
+  dispute
+}
+
+enum NotificationChannel {
+  email
+  sms
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  failed
+  bounced
+  cancelled
+}
+
+enum ConsentPurpose {
+  terms
+  privacy
+  sms_check_in
+  voice_replica
+  likeness_replica
+  avatar_posthumous_use
+}
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  email               String    @unique
+  emailVerifiedAt     DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  passwordHash        String    @map("password_hash")
+  status              UserStatus @default(active)
+  deletionRequestedAt DateTime? @map("deletion_requested_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  profile                  Profile?
+  sessions                 Session[]
+  capsules                 Capsule[]
+  personsOwned             Person[]                  @relation("PersonOwner")
+  mediaAssets              MediaAsset[]
+  checkInPolicy            CheckInPolicy?
+  checkInCycles            CheckInCycle[]
+  verificationCases        VerificationCase[]
+  consentRecords           ConsentRecord[]
+  auditEvents              AuditEvent[]
+  emailVerificationTokens  EmailVerificationToken[]
+
+  @@map("users")
+}
+
+model Profile {
+  userId               String  @id @map("user_id") @db.Uuid
+  displayName          String  @map("display_name")
+  timeZone             String  @map("time_zone")
+  locale               String  @default("en")
+  checkInChannelEmail  Boolean @default(true) @map("check_in_channel_email")
+  checkInChannelSms    Boolean @default(false) @map("check_in_channel_sms")
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  userAgent String?   @map("user_agent")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, createdAt])
+  @@map("login_attempts")
+}
+
+model Capsule {
+  id          String        @id @default(uuid()) @db.Uuid
+  ownerUserId String        @map("owner_user_id") @db.Uuid
+  title       String
+  description String?
+  status      CapsuleStatus @default(active)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt  DateTime?     @map("archived_at") @db.Timestamptz(6)
+  owner       User          @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  items       CapsuleItem[]
+
+  @@index([ownerUserId])
+  @@map("capsules")
+}
+
+model CapsuleItem {
+  id               String     @id @default(uuid()) @db.Uuid
+  capsuleId        String     @map("capsule_id") @db.Uuid
+  kind             ItemKind   @default(letter)
+  title            String
+  bodyCiphertext   Bytes?     @map("body_ciphertext")
+  bodyNonce        Bytes?     @map("body_nonce")
+  bodyTag          Bytes?     @map("body_tag")
+  status           ItemStatus @default(draft)
+  releasedAt       DateTime?  @map("released_at") @db.Timestamptz(6)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  capsule          Capsule    @relation(fields: [capsuleId], references: [id], onDelete: Cascade)
+  media            ItemMedia[]
+  grants           ItemGrant[]
+  releaseRules     ReleaseRule[]
+  releaseJobs      ReleaseJob[]
+
+  @@index([capsuleId, status])
+  @@map("capsule_items")
+}
+
+model MediaAsset {
+  id           String      @id @default(uuid()) @db.Uuid
+  ownerUserId  String      @map("owner_user_id") @db.Uuid
+  storageKey   String      @map("storage_key")
+  mimeType     String      @map("mime_type")
+  byteSize     Int         @map("byte_size")
+  sha256       String
+  originalName String      @map("original_name")
+  status       MediaStatus @default(ready)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  owner        User        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  links        ItemMedia[]
+
+  @@index([ownerUserId, status])
+  @@map("media_assets")
+}
+
+model ItemMedia {
+  itemId       String     @map("item_id") @db.Uuid
+  mediaAssetId String     @map("media_asset_id") @db.Uuid
+  position     Int        @default(0)
+  item         CapsuleItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  asset        MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, mediaAssetId])
+  @@map("item_media")
+}
+
+model Person {
+  id            String    @id @default(uuid()) @db.Uuid
+  ownerUserId   String    @map("owner_user_id") @db.Uuid
+  linkedUserId  String?   @map("linked_user_id") @db.Uuid
+  displayName   String    @map("display_name")
+  email         String?
+  phone         String?
+  relationship  String?
+  timeZone      String?   @map("time_zone")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  owner         User      @relation("PersonOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  roles         ContactRole[]
+  grants        ItemGrant[]
+  releaseJobs   ReleaseJob[]
+  attestations  Attestation[]
+  openedCases   VerificationCase[]
+  verificationTokens ContactVerificationToken[]
+
+  @@index([ownerUserId])
+  @@map("persons")
+}
+
+model ContactRole {
+  id                String          @id @default(uuid()) @db.Uuid
+  personId          String          @map("person_id") @db.Uuid
+  role              ContactRoleKind
+  channelVerifiedAt DateTime?       @map("channel_verified_at") @db.Timestamptz(6)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt         DateTime?       @map("revoked_at") @db.Timestamptz(6)
+  person            Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@map("contact_roles")
+}
+
+model ContactVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  personId  String    @map("person_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  person    Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@map("contact_verification_tokens")
+}
+
+model ItemGrant {
+  id            String          @id @default(uuid()) @db.Uuid
+  capsuleItemId String          @map("capsule_item_id") @db.Uuid
+  personId      String          @map("person_id") @db.Uuid
+  visibility    GrantVisibility @default(released_only)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz(6)
+  item          CapsuleItem     @relation(fields: [capsuleItemId], references: [id], onDelete: Cascade)
+  person        Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([capsuleItemId])
+  @@map("item_grants")
+}
+
+model ReleaseRule {
+  id            String            @id @default(uuid()) @db.Uuid
+  capsuleItemId String            @map("capsule_item_id") @db.Uuid
+  trigger       ReleaseTrigger
+  timeZone      String            @map("time_zone")
+  localDate     String?           @map("local_date")
+  localTime     String?           @map("local_time")
+  nextRunAt     DateTime?         @map("next_run_at") @db.Timestamptz(6)
+  status        ReleaseRuleStatus @default(active)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt   DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  item          CapsuleItem       @relation(fields: [capsuleItemId], references: [id], onDelete: Cascade)
+  jobs          ReleaseJob[]
+
+  @@index([nextRunAt])
+  @@index([capsuleItemId])
+  @@map("release_rules")
+}
+
+model ReleaseJob {
+  id                  String           @id @default(uuid()) @db.Uuid
+  idempotencyKey      String           @unique @map("idempotency_key")
+  releaseRuleId       String?          @map("release_rule_id") @db.Uuid
+  verificationCaseId  String?          @map("verification_case_id") @db.Uuid
+  capsuleItemId       String           @map("capsule_item_id") @db.Uuid
+  personId            String           @map("person_id") @db.Uuid
+  occurrenceAt        DateTime         @map("occurrence_at") @db.Timestamptz(6)
+  status              ReleaseJobStatus @default(pending)
+  attemptCount        Int              @default(0) @map("attempt_count")
+  providerMessageId   String?          @map("provider_message_id")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt              DateTime?        @map("sent_at") @db.Timestamptz(6)
+  cancelledAt         DateTime?        @map("cancelled_at") @db.Timestamptz(6)
+  rule                ReleaseRule?     @relation(fields: [releaseRuleId], references: [id])
+  verificationCase    VerificationCase? @relation(fields: [verificationCaseId], references: [id])
+  item                CapsuleItem      @relation(fields: [capsuleItemId], references: [id], onDelete: Cascade)
+  person              Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([status, occurrenceAt])
+  @@map("release_jobs")
+}
+
+model CheckInPolicy {
+  userId                String    @id @map("user_id") @db.Uuid
+  intervalDays          Int       @default(30) @map("interval_days")
+  pausedUntil           DateTime? @map("paused_until") @db.Timestamptz(6)
+  nextDueAt             DateTime  @map("next_due_at") @db.Timestamptz(6)
+  reminderOffsets       Json      @map("reminder_offsets")
+  unreachableAfterDays  Int       @default(21) @map("unreachable_after_days")
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nextDueAt])
+  @@map("check_in_policies")
+}
+
+model CheckInCycle {
+  id                   String            @id @default(uuid()) @db.Uuid
+  userId               String            @map("user_id") @db.Uuid
+  dueAt                DateTime          @map("due_at") @db.Timestamptz(6)
+  state                CheckInCycleState @default(due)
+  confirmedAt          DateTime?         @map("confirmed_at") @db.Timestamptz(6)
+  confirmationMethod   String?           @map("confirmation_method")
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events               CheckInEvent[]
+
+  @@unique([userId, dueAt])
+  @@map("check_in_cycles")
+}
+
+model CheckInEvent {
+  id             String           @id @default(uuid()) @db.Uuid
+  cycleId        String           @map("cycle_id") @db.Uuid
+  type           CheckInEventType
+  offsetDays     Int?             @map("offset_days")
+  at             DateTime         @db.Timestamptz(6)
+  notificationId String?          @map("notification_id") @db.Uuid
+  cycle          CheckInCycle     @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@index([cycleId, at])
+  @@map("check_in_events")
+}
+
+model VerificationCase {
+  id                         String            @id @default(uuid()) @db.Uuid
+  subjectUserId              String            @map("subject_user_id") @db.Uuid
+  state                      VerificationState
+  openedByPersonId           String            @map("opened_by_person_id") @db.Uuid
+  quorumRequired             Int               @map("quorum_required")
+  quorumOf                   Int               @map("quorum_of")
+  coolingOffEndsAt           DateTime?         @map("cooling_off_ends_at") @db.Timestamptz(6)
+  cancellationWindowEndsAt   DateTime?         @map("cancellation_window_ends_at") @db.Timestamptz(6)
+  resolution                 String?
+  openedAt                   DateTime          @map("opened_at") @db.Timestamptz(6)
+  resolvedAt                 DateTime?         @map("resolved_at") @db.Timestamptz(6)
+  subject                    User              @relation(fields: [subjectUserId], references: [id], onDelete: Cascade)
+  openedBy                   Person            @relation(fields: [openedByPersonId], references: [id])
+  attestations               Attestation[]
+  jobs                       ReleaseJob[]
+
+  @@index([subjectUserId])
+  @@map("verification_cases")
+}
+
+model Attestation {
+  id          String              @id @default(uuid()) @db.Uuid
+  caseId      String              @map("case_id") @db.Uuid
+  personId    String              @map("person_id") @db.Uuid
+  position    AttestationPosition
+  note        String?
+  attestedAt  DateTime            @map("attested_at") @db.Timestamptz(6)
+  withdrawnAt DateTime?           @map("withdrawn_at") @db.Timestamptz(6)
+  case        VerificationCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  person      Person              @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, personId])
+  @@map("attestations")
+}
+
+model NotificationDelivery {
+  id                String               @id @default(uuid()) @db.Uuid
+  idempotencyKey    String               @unique @map("idempotency_key")
+  channel           NotificationChannel
+  templateId        String               @map("template_id")
+  destinationHash   String               @map("destination_hash")
+  status            NotificationStatus   @default(queued)
+  relatedType       String               @map("related_type")
+  relatedId         String               @map("related_id")
+  providerMessageId String?              @map("provider_message_id")
+  errorCode         String?              @map("error_code")
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([relatedType, relatedId])
+  @@map("notification_deliveries")
+}
+
+model ConsentRecord {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @map("user_id") @db.Uuid
+  purpose       ConsentPurpose
+  policyVersion String         @map("policy_version")
+  grantedAt     DateTime       @map("granted_at") @db.Timestamptz(6)
+  revokedAt     DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  source        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("consent_records")
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  metadata    Json?
+  at          DateTime @db.Timestamptz(6)
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("audit_events")
+}
+
+model DevClock {
+  id           Int      @id
+  simulatedNow DateTime @map("simulated_now") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("dev_clock")
+}
+
+model DevMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  templateId  String   @map("template_id")
+  destination String
+  variables   Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@map("dev_messages")
+}

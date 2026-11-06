@@ -1,44 +1,26 @@
 export class ApiError extends Error {
   status: number;
-  fields?: Record<string, string>;
+  code?: string;
+  details?: { fieldErrors?: Record<string, string[]> };
 
-  constructor(status: number, message: string, fields?: Record<string, string>) {
+  constructor(status: number, message: string, code?: string, details?: { fieldErrors?: Record<string, string[]> }) {
     super(message);
-    this.name = 'ApiError';
     this.status = status;
-    this.fields = fields;
+    this.code = code;
+    this.details = details;
   }
 }
 
-type ErrorBody = {
-  message?: string | string[];
-  fields?: Record<string, string>;
-};
-
-function messageFrom(body: ErrorBody, fallback: string) {
-  if (Array.isArray(body.message)) return body.message.join(' ');
-  if (typeof body.message === 'string' && body.message.trim()) return body.message;
-  return fallback;
-}
-
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init?.headers,
-    },
-    credentials: 'same-origin',
-    cache: 'no-store',
-  });
-
-  const text = await response.text();
-  const body = text ? (JSON.parse(text) as ErrorBody & T) : ({} as ErrorBody & T);
-
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(path, { ...options, headers, credentials: "include" });
+  if (response.status === 204) return undefined as T;
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(response.status, messageFrom(body, 'Request failed.'), body.fields);
+    throw new ApiError(response.status, data.error?.message || "Request failed.", data.error?.code, data.error?.details);
   }
-
-  return body as T;
+  return data as T;
 }

@@ -1,31 +1,20 @@
-import type { Metadata } from 'next';
-import { Source_Sans_3, Source_Serif_4 } from 'next/font/google';
-import { SessionProvider } from '@/components/SessionProvider';
-import { SiteHeader } from '@/components/SiteHeader';
-import './globals.css';
-
-const sans = Source_Sans_3({ subsets: ['latin'], variable: '--font-sans' });
-const serif = Source_Serif_4({ subsets: ['latin'], variable: '--font-serif' });
+import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'Digi Capsule',
-  description: 'A private place to keep letters, photos, videos, audio, and documents.',
+  title: "Digi Capsule",
+  description: "A private place to keep memories for the people you choose.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${sans.variable} ${serif.variable} font-sans text-ink antialiased`}>
-        <SessionProvider>
-          <a href="#content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-30 focus:rounded-full focus:bg-white focus:px-4 focus:py-2">
-            Skip to content
-          </a>
-          <SiteHeader />
-          <main id="content" className="mx-auto w-full max-w-6xl px-4 py-8 sm:py-12">
-            {children}
-          </main>
-        </SessionProvider>
-      </body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }
