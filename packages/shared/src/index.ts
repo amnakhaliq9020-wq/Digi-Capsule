@@ -1,3 +1,25 @@
+/** Wording for the three check-in warnings. Email is sent. SMS is written here and is not sent in Phase 1. */
+export const WARNING_MESSAGES = {
+  missed_check_in: {
+    label: "Missed check-in",
+    email:
+      "This is the missed check-in warning. Please confirm you can still sign in to Digi Capsule. Confirming only records that you are reachable. It does not send memories.",
+    sms: "Digi Capsule: we missed your check-in. Please sign in and press I'm Alive. This does not send memories, and it is not a conclusion that you have died.",
+  },
+  second_warning: {
+    label: "Second warning",
+    email:
+      "This is the second warning, 7 days after the missed check-in. Please confirm you can still sign in to Digi Capsule. Confirming does not send memories.",
+    sms: "Digi Capsule: second warning, 7 days after the missed check-in. Please sign in when you can. This does not send memories.",
+  },
+  final_warning: {
+    label: "Final warning",
+    email:
+      "This is the final warning, 14 days after the missed check-in. Please confirm you can still sign in. In test mode, a simulated conditional release can be recorded 7 days from now. That simulation does not send a memory, and an unanswered check-in is not proof of death.",
+    sms: "Digi Capsule: final warning, 14 days after the missed check-in. Please sign in. An unanswered check-in is not proof of death, and no memory is sent.",
+  },
+} as const;
+
 export const CHECK_IN_INTERVAL_DAYS = 30;
 /** Phase 1 warnings: missed check-in, then 7 days later, then a final warning 7 days after that. */
 export const REMINDER_OFFSETS_DAYS = [0, 7, 14] as const;

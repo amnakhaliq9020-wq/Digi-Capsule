@@ -9,10 +9,19 @@ import { deliverEmail } from "../lib/notify";
 
 const roleSchema = z.enum(["recipient", "trusted_contact", "verifier"]);
 
+const phoneSchema = z
+  .string("Enter a phone number.")
+  .trim()
+  .min(1, "Enter a phone number.")
+  .max(30, "That phone number is too long.")
+  .refine((value) => /^[0-9+().\-\s]+$/.test(value), "Use digits, spaces, and + ( ) - .")
+  .refine((value) => (value.match(/\d/g) ?? []).length >= 7, "Enter a phone number with at least 7 digits.");
+
 function present(person: {
   id: string;
   displayName: string;
   email: string | null;
+  phone: string | null;
   relationship: string | null;
   roles: { role: "recipient" | "trusted_contact" | "verifier"; channelVerifiedAt: Date | null; revokedAt: Date | null }[];
 }) {
@@ -21,6 +30,7 @@ function present(person: {
     id: person.id,
     displayName: person.displayName,
     email: person.email,
+    phone: person.phone,
     relationship: person.relationship,
     roles: roles.map((role) => role.role),
     emailVerified: roles.some((role) => role.channelVerifiedAt),
@@ -44,6 +54,7 @@ export async function contactRoutes(app: FastifyInstance) {
       .object({
         displayName: z.string().trim().min(1, "Enter a name.").max(80),
         email: z.string().trim().email("Enter a valid email address.").max(254),
+        phone: phoneSchema,
         relationship: z.string().trim().max(80).optional(),
         roles: z.array(roleSchema).min(1, "Choose at least one role.").default(["recipient"]),
       })
@@ -57,6 +68,7 @@ export async function contactRoutes(app: FastifyInstance) {
         ownerUserId: user.id,
         displayName: parsed.data.displayName,
         email,
+        phone: parsed.data.phone,
         relationship: parsed.data.relationship,
         roles: { create: parsed.data.roles.map((role) => ({ role })) },
       },
@@ -73,8 +85,9 @@ export async function contactRoutes(app: FastifyInstance) {
     if (!existing) throw new AppError(404, "NOT_FOUND", "Contact not found.");
     const parsed = z
       .object({
-        displayName: z.string().trim().min(1).max(80).optional(),
+        displayName: z.string().trim().min(1, "Enter a name.").max(80).optional(),
         email: z.string().trim().email("Enter a valid email address.").optional(),
+        phone: phoneSchema.optional(),
         relationship: z.string().trim().max(80).nullable().optional(),
         roles: z.array(roleSchema).min(1).optional(),
       })
@@ -97,7 +110,12 @@ export async function contactRoutes(app: FastifyInstance) {
       }
       return tx.person.update({
         where: { id },
-        data: { displayName: parsed.data.displayName, email, relationship: parsed.data.relationship },
+        data: {
+          displayName: parsed.data.displayName,
+          email,
+          phone: parsed.data.phone,
+          relationship: parsed.data.relationship,
+        },
         include: { roles: true },
       });
     });

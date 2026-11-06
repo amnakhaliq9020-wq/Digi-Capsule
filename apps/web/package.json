@@ -8,6 +8,7 @@
     "start": "next start --port 3000"
   },
   "dependencies": {
+    "@digi/shared": "*",
     "next": "^15.5.9",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

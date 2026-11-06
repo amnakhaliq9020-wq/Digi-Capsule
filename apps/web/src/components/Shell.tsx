@@ -32,7 +32,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="shell">
       <aside className="nav">
-        <p className="brand">Digi <span>Capsule</span></p>
+        <p className="brand"><img className="logo mark" src="/logo.png" alt="" width={36} height={36} /> Digi <span>Capsule</span></p>
         <p>{name ? `Signed in as ${name}` : "Loading…"}</p>
         {links.filter(([href]) => href !== "/dev" || testMode).map(([href, label]) => (
           <Link key={href} href={href} className={path === href ? "active" : ""}>{label}</Link>

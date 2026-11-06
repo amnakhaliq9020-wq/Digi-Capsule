@@ -3,6 +3,7 @@ import Link from "next/link";
 export default function HomePage() {
   return (
     <main className="hero card">
+      <img className="logo" src="/logo.png" alt="Digi Capsule" width={72} height={72} />
       <p className="pill">Private family legacy</p>
       <h1>Keep a memory, and decide who may receive it.</h1>
       <p className="muted">

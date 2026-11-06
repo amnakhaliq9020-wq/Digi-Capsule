@@ -97,8 +97,8 @@ Allowed types: JPEG, PNG, WEBP, GIF, MP4, WEBM, MOV. Another user's file returns
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/v1/contacts` | Address book. |
-| POST | `/v1/contacts` | `{ displayName, email, relationship?, roles? }`. Roles: `recipient`, `trusted_contact`, `verifier`. |
-| PATCH | `/v1/contacts/:id` | Change name, email, relationship, or roles. Changing the email clears verification. |
+| POST | `/v1/contacts` | `{ displayName, email, phone, relationship?, roles? }`. `phone` is required. Roles: `recipient`, `trusted_contact`, `verifier`. |
+| PATCH | `/v1/contacts/:id` | Change name, email, phone, relationship, or roles. Changing the email clears verification. |
 | DELETE | `/v1/contacts/:id` | Remove a contact who has not already been sent a memory. |
 | POST | `/v1/contacts/:id/verification` | Send a verification code. Test mode returns `devCode`. |
 | POST | `/v1/contacts/:id/verify` | `{ code }` marks the contact's email verified. |
@@ -130,4 +130,4 @@ These return 404 unless `DIGI_TEST_MODE=true` and the process is not production.
 | POST | `/v1/dev/verification/cases` | `{ verifierPersonId }` opens a test review. |
 | POST | `/v1/dev/verification/cases/:id/attestations` | `{ personId, position, note? }`. One `believe_deceased` statement does not start the waiting period. Two are required. |
 
-Notification templates are `email_verification`, `contact_verification`, `check_in_due`, `check_in_reminder`, `trusted_contact_unreachable`, `simulated_conditional_release`, and `memory_ready`. `memory_ready` does not include the letter. `simulated_conditional_release` is written only when test mode is on, and it does not include a memory. SMS is not sent. Production conditional release stays off: `VERIFICATION_RELEASES_ENABLED` is ignored when `NODE_ENV=production`.
+Notification templates are `email_verification`, `contact_verification`, `check_in_due`, `check_in_reminder`, `trusted_contact_unreachable`, `simulated_conditional_release`, and `memory_ready`. `memory_ready` does not include the letter. `simulated_conditional_release` is written only when test mode is on, and it does not include a memory. The missed check-in, second warning, and final warning each have email and SMS wording in `@digi/shared`. The worker sends the email text. SMS is not sent. Production conditional release stays off: `VERIFICATION_RELEASES_ENABLED` is ignored when `NODE_ENV=production`.

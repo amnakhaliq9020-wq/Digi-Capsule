@@ -285,6 +285,7 @@ model Person {
   linkedUserId  String?   @map("linked_user_id") @db.Uuid
   displayName   String    @map("display_name")
   email         String?
+  phone         String?
   relationship  String?
   timeZone      String?   @map("time_zone")
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

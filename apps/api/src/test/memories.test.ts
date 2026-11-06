@@ -101,7 +101,7 @@ describe("memories, media, and recipients", () => {
       method: "POST",
       url: "/v1/contacts",
       headers: { cookie: author.cookie },
-      payload: { displayName: "Jordan", email: "jordan@example.test", roles: ["recipient"] },
+      payload: { displayName: "Jordan", email: "jordan@example.test", phone: "+1 555 010 0199", roles: ["recipient"] },
     });
     const scheduled = await app.inject({
       method: "POST",

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@digi/db";
+import { WARNING_MESSAGES } from "@digi/shared";
 import { isTestMode } from "../env";
 import { isUniqueViolation } from "../errors";
 
@@ -30,11 +31,11 @@ export function renderTemplate(templateId: string, variables: Record<string, str
     case "contact_verification":
       return `Confirm this contact email for Digi Capsule. Code: ${variables.code}.`;
     case "check_in_due":
-      return "This is the missed check-in warning. Please confirm you can still sign in to Digi Capsule. Confirming only records that you are reachable. It does not send memories.";
+      return WARNING_MESSAGES.missed_check_in.email;
     case "check_in_reminder":
       return variables.stage === "final_warning"
-        ? "This is the final warning, 14 days after the missed check-in. Please confirm you can still sign in. In test mode, a simulated conditional release can be recorded 7 days from now. That simulation does not send a memory, and an unanswered check-in is not proof of death."
-        : "This is the second warning, 7 days after the missed check-in. Please confirm you can still sign in to Digi Capsule. Confirming does not send memories.";
+        ? WARNING_MESSAGES.final_warning.email
+        : WARNING_MESSAGES.second_warning.email;
     case "trusted_contact_unreachable":
       return `We could not confirm ${author} is reachable. This does not mean they have died. You cannot read their memories from this notice.`;
     case "simulated_conditional_release":

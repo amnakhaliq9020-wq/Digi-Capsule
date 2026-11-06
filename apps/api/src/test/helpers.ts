@@ -75,13 +75,13 @@ export async function verifyEmail(app: FastifyInstance, cookie: string, token: s
 export async function addVerifiedContact(
   app: FastifyInstance,
   cookie: string,
-  input: { displayName: string; email: string; roles?: string[] },
+  input: { displayName: string; email: string; phone?: string; roles?: string[] },
 ) {
   const created = await app.inject({
     method: "POST",
     url: "/v1/contacts",
     headers: { cookie },
-    payload: input,
+    payload: { phone: "+1 555 010 0100", ...input },
   });
   const contact = created.json().contact;
   const verification = await app.inject({

@@ -4,6 +4,8 @@ Private digital legacy platform. This repository now contains the Phase 1 applic
 
 A missed check-in means the author has not confirmed they can still sign in. It does not send memories. Death-related delivery is implemented only as a development simulation and is forced off when `NODE_ENV=production`.
 
+Phase 1 is one application. The landing page explains that. After sign-up, a person can add contacts with a name, email, and phone, save a letter or video as **Send on a date** or **If I am gone**, and press **I'm Alive**. The dashboard shows the last check-in, the next due time, and the memory and contact lists. Warning email and SMS wording is on the warning history page. Email is what the worker sends. SMS is not sent in this phase.
+
 ## What you need
 
 - Node.js 22 or newer
