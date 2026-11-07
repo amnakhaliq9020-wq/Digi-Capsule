@@ -7,6 +7,7 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { StoragePort } from "./lib/storage";
 import { env, isTestMode, isVerificationReleaseEnabled } from "./env";
+import { serverNow, usesSimulationClock } from "./lib/clock";
 import { AppError } from "./errors";
 import { createStorage } from "./lib/storage";
 import { authRoutes } from "./routes/auth";
@@ -52,6 +53,15 @@ export async function buildApp() {
     }
   });
 
+  app.setNotFoundHandler((request, reply) => {
+    return reply.status(404).send({
+      error: {
+        code: "NOT_FOUND",
+        message: `No ${request.method} ${request.url.split("?")[0]} route is available.`,
+      },
+    });
+  });
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({
@@ -81,6 +91,8 @@ export async function buildApp() {
         status: "ok",
         database: "up",
         testMode: isTestMode(),
+        serverTime: serverNow().toISOString(),
+        schedulingClock: usesSimulationClock() ? "simulation" : "server",
         verificationReleasesEnabled: isVerificationReleaseEnabled(),
       };
     });

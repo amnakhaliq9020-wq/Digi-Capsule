@@ -1,3 +1,19 @@
+export function readApiFailure(status: number, data: unknown): { message: string; code?: string; details?: { fieldErrors?: Record<string, string[]> } } {
+  if (data && typeof data === "object") {
+    const body = data as { error?: unknown; message?: unknown };
+    if (body.error && typeof body.error === "object") {
+      const error = body.error as { message?: unknown; code?: unknown; details?: { fieldErrors?: Record<string, string[]> } };
+      if (typeof error.message === "string" && error.message.trim()) {
+        return { message: error.message, code: typeof error.code === "string" ? error.code : undefined, details: error.details };
+      }
+    }
+    if (typeof body.message === "string" && body.message.trim()) {
+      return { message: body.message, code: typeof body.error === "string" ? body.error : undefined };
+    }
+  }
+  return { message: `The request failed (${status}).` };
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -20,7 +36,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(response.status, data.error?.message || "Request failed.", data.error?.code, data.error?.details);
+    const failure = readApiFailure(response.status, data);
+    throw new ApiError(response.status, failure.message, failure.code, failure.details);
   }
   return data as T;
 }

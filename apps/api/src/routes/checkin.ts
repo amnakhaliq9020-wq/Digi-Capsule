@@ -19,7 +19,7 @@ export async function checkInRoutes(app: FastifyInstance) {
       include: { events: { orderBy: { at: "asc" } } },
     });
     const last = await app.prisma.checkInCycle.findFirst({
-      where: { userId: user.id, state: "confirmed" },
+      where: { userId: user.id, state: "confirmed", confirmedAt: { lte: now } },
       orderBy: { confirmedAt: "desc" },
     });
     const review = await app.prisma.verificationCase.findFirst({

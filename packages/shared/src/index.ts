@@ -1,4 +1,4 @@
-/** Wording for the three check-in warnings. Email is sent. SMS is written here and is not sent in Phase 1. */
+/** Wording for the three check-in warnings. Email is recorded for the author. SMS is recorded as a local mock and is not sent to a phone. */
 export const WARNING_MESSAGES = {
   missed_check_in: {
     label: "Missed check-in",

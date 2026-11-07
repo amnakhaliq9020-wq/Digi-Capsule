@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
+import { formatWhen, zonesWith } from "@/lib/time";
 
 type Contact = { id: string; displayName: string; email: string; emailVerified: boolean; roles: string[] };
 type Attachment = { id: string; mimeType: string; originalName: string; kind: "photo" | "video" };
@@ -16,8 +17,6 @@ type Memory = {
   attachments: Attachment[];
   schedule: { localDate: string | null; localTime: string | null; timeZone: string } | null;
 };
-
-const zones = ["UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Asia/Karachi", "Asia/Dubai", "Australia/Sydney"];
 
 export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const router = useRouter();
@@ -33,10 +32,12 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const [id, setId] = useState(memoryId);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [serverTime, setServerTime] = useState("");
 
   useEffect(() => {
     api<{ contacts: Contact[] }>("/v1/contacts").then((data) => setContacts(data.contacts)).catch(() => undefined);
     api<{ user: { timeZone: string } }>("/v1/auth/me").then((data) => setTimeZone(data.user.timeZone)).catch(() => undefined);
+    api<{ serverTime: string }>("/v1/health").then((data) => setServerTime(data.serverTime)).catch(() => undefined);
     if (!memoryId) return;
     api<{ memory: Memory }>(`/v1/memories/${memoryId}`).then((data) => {
       setTitle(data.memory.title);
@@ -73,8 +74,13 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
 
   async function removeAttachment(assetId: string) {
     if (!id) return;
-    await api(`/v1/memories/${id}/attachments/${assetId}`, { method: "DELETE" });
-    setAttachments((current) => current.filter((item) => item.id !== assetId));
+    setError("");
+    try {
+      await api(`/v1/memories/${id}/attachments/${assetId}`, { method: "DELETE" });
+      setAttachments((current) => current.filter((item) => item.id !== assetId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not remove that file.");
+    }
   }
 
   async function schedule() {
@@ -104,13 +110,13 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         </div>
         <div className="row">
           <button type="submit">Save draft</button>
-          <span className="muted">{message}</span>
+          <span className="ok">{message}</span>
         </div>
         {id ? (
           <div>
             <label htmlFor="file">Photo or video</label>
             <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file).catch((err) => setError(err instanceof ApiError ? err.message : "Upload failed.")); }} />
-            <div className="media-grid" style={{ marginTop: 12 }}>
+            <div className="media-grid">
               {attachments.map((file) => (
                 <figure key={file.id}>
                   {file.kind === "video" ? <video src={`/v1/media/${file.id}/content`} controls /> : <img src={`/v1/media/${file.id}/content`} alt={file.originalName} />}
@@ -119,8 +125,8 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
               ))}
             </div>
           </div>
-        ) : <p className="muted">Save the draft before attaching a file.</p>}
-        {error ? <p className="error">{error}</p> : null}
+        ) : <p className="empty">Save the draft before attaching a file.</p>}
+        {error ? <p className="error" role="alert">{error}</p> : null}
       </form>
       <aside className="card stack">
         <h2>Who receives this</h2>
@@ -136,20 +142,23 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         <label className="check"><input type="radio" name="mode" checked={mode === "if_i_am_gone"} onChange={() => setMode("if_i_am_gone")} /> If I am gone</label>
         {mode === "on_date" ? (
           <>
+            <div className="callout">
+              <p>Server time: {serverTime ? formatWhen(serverTime, timeZone) : "Loading…" } ({timeZone}). A delivery has to be later than this. The date and time below are in the time zone you choose.</p>
+            </div>
             <label htmlFor="date">Date</label>
             <input id="date" type="date" value={localDate} onChange={(event) => setLocalDate(event.target.value)} />
             <label htmlFor="time">Time</label>
             <input id="time" type="time" value={localTime} onChange={(event) => setLocalTime(event.target.value)} />
             <label htmlFor="zone">Time zone</label>
-            <select id="zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>{zones.map((zone) => <option key={zone}>{zone}</option>)}</select>
+            <select id="zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>{zonesWith(timeZone).map((zone) => <option key={zone}>{zone}</option>)}</select>
           </>
-        ) : <p className="muted">This uses the separate check-in review. Missing a check-in does not send it. Real release stays off outside the test console.</p>}
-        <div className="card" style={{ boxShadow: "none" }}>
+        ) : <p className="muted">Warnings stay separate from this memory. The test console can deliver it after the final warning plus 7 days. Production does not.</p>}
+        <div className="card preview">
           <strong>Preview</strong>
           <p className="muted">
             {mode === "on_date"
-              ? `On ${localDate || "the chosen date"} at ${localTime} (${timeZone}), ${chosen.map((person) => person.displayName).join(", ") || "the selected people"} will get a notice that this memory is ready. The email will not include the letter.`
-              : `${chosen.map((person) => person.displayName).join(", ") || "The selected people"} are named on the If I am gone option. Warnings never send this memory.`}
+              ? `On ${localDate || "the chosen date"} at ${localTime} (${timeZone}), ${chosen.map((person) => person.displayName).join(", ") || "the selected people"} receive this letter and its files in the local test inbox. A real email provider is not used.`
+              : `${chosen.map((person) => person.displayName).join(", ") || "The selected people"} receive this memory only after the test-console missed-check-in sequence. Warnings never include the letter.`}
           </p>
         </div>
         <button type="button" onClick={() => void schedule()}>Save delivery</button>

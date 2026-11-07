@@ -23,12 +23,13 @@ export default function ContactsPage() {
   const [error, setError] = useState("");
   const [fields, setFields] = useState<Record<string, string[]>>({});
   const [editing, setEditing] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
   async function load() {
     const data = await api<{ contacts: Contact[] }>("/v1/contacts");
     setContacts(data.contacts);
   }
-  useEffect(() => { void load().catch(() => undefined); }, []);
+  useEffect(() => { void load().catch(() => undefined).finally(() => setReady(true)); }, []);
 
   function toggle(role: string) {
     setForm((current) => ({
@@ -100,31 +101,31 @@ export default function ContactsPage() {
       <form className="card" onSubmit={(event) => void save(event)}>
         <label htmlFor="name">Name</label>
         <input id="name" value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} required />
-        {fieldMessage("displayName") ? <p className="error">{fieldMessage("displayName")}</p> : null}
+        {fieldMessage("displayName") ? <p className="error" role="alert">{fieldMessage("displayName")}</p> : null}
         <label htmlFor="email">Email</label>
         <input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-        {fieldMessage("email") ? <p className="error">{fieldMessage("email")}</p> : null}
+        {fieldMessage("email") ? <p className="error" role="alert">{fieldMessage("email")}</p> : null}
         <label htmlFor="phone">Phone</label>
         <input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} required placeholder="+92 300 000 0000" />
-        {fieldMessage("phone") ? <p className="error">{fieldMessage("phone")}</p> : null}
+        {fieldMessage("phone") ? <p className="error" role="alert">{fieldMessage("phone")}</p> : null}
         <label htmlFor="relationship">Relationship</label>
         <input id="relationship" value={form.relationship} onChange={(event) => setForm({ ...form, relationship: event.target.value })} />
         {["recipient", "trusted_contact", "verifier"].map((role) => (
           <label key={role} className="check"><input type="checkbox" checked={form.roles.includes(role)} onChange={() => toggle(role)} /> {role.replaceAll("_", " ")}</label>
         ))}
-        {error ? <p className="error">{error}</p> : null}
+        {error ? <p className="error" role="alert">{error}</p> : null}
         <div className="row">
           <button type="submit">{editing ? "Save changes" : "Add contact"}</button>
           {editing ? <button type="button" className="secondary" onClick={() => { setEditing(null); setForm(emptyForm); setError(""); setFields({}); }}>Cancel</button> : null}
         </div>
       </form>
-      {devCode ? <p className="card">Development verification code: {devCode}</p> : null}
-      <div className="list" style={{ marginTop: 16 }}>
-        {contacts.length === 0 ? <p className="card muted">No contacts yet. Add someone before you schedule a memory.</p> : null}
+      {devCode ? <p className="banner">Development verification code: {devCode}</p> : null}
+      <div className="list section">
+        {!ready ? <p className="loading">Loading…</p> : contacts.length === 0 ? <p className="empty">No contacts yet. Add someone before you schedule a memory.</p> : null}
         {contacts.map((contact) => (
           <article key={contact.id} className="item">
             <strong>{contact.displayName}</strong>
-            <p className="muted">{contact.email} · {contact.phone || "no phone"} · {contact.roles.join(", ") || "no role"} · {contact.emailVerified ? "email verified" : "email not verified"}</p>
+            <p className="muted">{contact.email} · {contact.phone || "no phone"} · {contact.roles.map((role) => role.replaceAll("_", " ")).join(", ") || "no role"} · {contact.emailVerified ? "email verified" : "email not verified"}</p>
             <div className="row">
               <button className="secondary" onClick={() => { setEditing(contact.id); setError(""); setFields({}); setForm({ displayName: contact.displayName, email: contact.email, phone: contact.phone || "", relationship: contact.relationship || "", roles: contact.roles.length ? contact.roles : ["recipient"] }); }}>Edit</button>
               {!contact.emailVerified ? <button onClick={() => void verify(contact)}>Verify email</button> : null}

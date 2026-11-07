@@ -27,6 +27,23 @@ async function authorWithMemory(email: string) {
 }
 
 describe("check-in and test-only release", () => {
+  it("accepts another I'm Alive at the same simulated instant", async () => {
+    const { author } = await authorWithMemory("repeat-alive@example.test");
+    const frozen = new Date("2027-02-16T10:00:00.000Z");
+    await app.prisma.devClock.upsert({
+      where: { id: 1 },
+      create: { id: 1, simulatedNow: frozen },
+      update: { simulatedNow: frozen },
+    });
+    const first = await app.inject({ method: "POST", url: "/v1/check-in", headers: { cookie: author.cookie } });
+    const second = await app.inject({ method: "POST", url: "/v1/check-in", headers: { cookie: author.cookie } });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().message).toMatch(/did not send/i);
+    const cycles = await app.prisma.checkInCycle.count({ where: { userId: author.body.user.id, dueAt: second.json().nextCheckInDueAt } });
+    expect(cycles).toBe(1);
+  });
+
   it("records I'm Alive without sending a memory", async () => {
     const { author, recipient, memoryId } = await authorWithMemory("alive@example.test");
     await app.inject({
@@ -74,7 +91,7 @@ describe("check-in and test-only release", () => {
         payload: { simulatedNow: new Date(cycle.dueAt.getTime() + step.day * 24 * 60 * 60 * 1000).toISOString() },
       });
       await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
-      expect(await app.prisma.releaseJob.count()).toBe(0);
+      if (step.day < 21) expect(await app.prisma.releaseJob.count()).toBe(0);
       const midway = await app.inject({ method: "GET", url: "/v1/check-in", headers: { cookie: author.cookie } });
       expect(midway.json().warningStage).toBe(step.stage);
     }
@@ -82,9 +99,13 @@ describe("check-in and test-only release", () => {
     await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
     process.env.VERIFICATION_RELEASES_ENABLED = "false";
     const reminders = await app.prisma.notificationDelivery.findMany({
-      where: { templateId: { in: ["check_in_due", "check_in_reminder"] } },
+      where: { channel: "email", templateId: { in: ["check_in_due", "check_in_reminder"] } },
     });
     expect(reminders).toHaveLength(3);
+    const sms = await app.prisma.notificationDelivery.findMany({
+      where: { channel: "sms", templateId: { in: ["check_in_due", "check_in_reminder"] } },
+    });
+    expect(sms).toHaveLength(3);
     const simulated = await app.prisma.notificationDelivery.findMany({ where: { templateId: "simulated_conditional_release" } });
     expect(simulated).toHaveLength(1);
     const notice = await app.prisma.notificationDelivery.findMany({ where: { templateId: "trusted_contact_unreachable" } });
@@ -98,7 +119,13 @@ describe("check-in and test-only release", () => {
     expect(status.json().events.length).toBeGreaterThan(0);
     expect(trusted.id).toBeTruthy();
     const inbox = await app.prisma.devMessage.findMany();
-    expect(JSON.stringify(inbox)).not.toContain("PRIVATE_GONE_LETTER");
+    const warnings = inbox.filter((message) => message.templateId !== "memory_ready");
+    const ready = inbox.filter((message) => message.templateId === "memory_ready");
+    expect(JSON.stringify(warnings)).not.toContain("PRIVATE_GONE_LETTER");
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.destination).toBe("to-warnings@example.test");
+    expect(JSON.stringify(ready)).toContain("PRIVATE_GONE_LETTER");
+    expect(await app.prisma.releaseJob.count()).toBe(1);
     expect(JSON.stringify(inbox)).toContain("does not mean they have died");
     expect(JSON.stringify(inbox)).toContain("not proof of death");
     expect(JSON.stringify(inbox)).not.toContain("second warning, 3 days");
@@ -235,8 +262,12 @@ describe("check-in and test-only release", () => {
     expect(forB?.capsuleItemId).toBe(otherId);
     const messages = await app.prisma.devMessage.findMany({ where: { templateId: "memory_ready" } });
     expect(messages).toHaveLength(2);
-    expect(JSON.stringify(messages)).not.toContain("PRIVATE_GONE_LETTER");
-    expect(JSON.stringify(messages)).not.toContain("OTHER_PRIVATE");
+    const forRecipientA = messages.find((message) => message.destination === "recv-a@example.test");
+    const forRecipientB = messages.find((message) => message.destination === "recv-b@example.test");
+    expect(JSON.stringify(forRecipientA?.variables)).toContain("PRIVATE_GONE_LETTER");
+    expect(JSON.stringify(forRecipientA?.variables)).not.toContain("OTHER_PRIVATE");
+    expect(JSON.stringify(forRecipientB?.variables)).toContain("OTHER_PRIVATE");
+    expect(JSON.stringify(forRecipientB?.variables)).not.toContain("PRIVATE_GONE_LETTER");
   });
 
   it("keeps an authorized review retryable when no delivery was queued", async () => {
@@ -336,7 +367,18 @@ describe("check-in and test-only release", () => {
     const opened = await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
     expect(opened.json().simulatedReleasesRecorded).toBe(1);
     expect(opened.json().verificationJobsSent).toBe(0);
-    expect(await app.prisma.releaseJob.count()).toBe(0);
+    const jobs = await app.prisma.releaseJob.findMany();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.personId).toBe(recipient.id);
+    const ready = await app.prisma.devMessage.findMany({ where: { templateId: "memory_ready" } });
+    const simulated = await app.prisma.devMessage.findMany({ where: { templateId: "simulated_conditional_release" } });
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.destination).toBe(recipient.email);
+    expect(JSON.stringify(ready)).toContain("PRIVATE_GONE_LETTER");
+    expect(JSON.stringify(simulated)).not.toContain("PRIVATE_GONE_LETTER");
+    const again = await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
+    expect(again.json().simulatedReleasesRecorded).toBe(0);
+    expect(await app.prisma.releaseJob.count()).toBe(1);
   });
 
   it("hides the test clock outside test mode and keeps the sample flag off", async () => {

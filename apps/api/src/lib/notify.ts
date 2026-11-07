@@ -7,10 +7,14 @@ import { isUniqueViolation } from "../errors";
 const ALLOWED_VARIABLES = new Set([
   "authorName",
   "stage",
+  "channel",
   "code",
   "itemId",
   "personId",
   "summary",
+  "title",
+  "letter",
+  "files",
   "text",
 ]);
 
@@ -31,8 +35,11 @@ export function renderTemplate(templateId: string, variables: Record<string, str
     case "contact_verification":
       return `Confirm this contact email for Digi Capsule. Code: ${variables.code}.`;
     case "check_in_due":
-      return WARNING_MESSAGES.missed_check_in.email;
+      return variables.channel === "sms" ? WARNING_MESSAGES.missed_check_in.sms : WARNING_MESSAGES.missed_check_in.email;
     case "check_in_reminder":
+      if (variables.channel === "sms") {
+        return variables.stage === "final_warning" ? WARNING_MESSAGES.final_warning.sms : WARNING_MESSAGES.second_warning.sms;
+      }
       return variables.stage === "final_warning"
         ? WARNING_MESSAGES.final_warning.email
         : WARNING_MESSAGES.second_warning.email;
@@ -41,6 +48,9 @@ export function renderTemplate(templateId: string, variables: Record<string, str
     case "simulated_conditional_release":
       return "This is a simulated conditional release for testing. An unanswered check-in is not proof of death. No memory was sent. Production conditional release stays disabled.";
     case "memory_ready":
+      if (variables.letter) {
+        return `${author} shared "${variables.title || "a memory"}" with you on Digi Capsule. Letter: ${variables.letter}. Files: ${variables.files || "none"}. This test copy was stored locally and was not sent by an outside provider.`;
+      }
       return `${author} shared a memory with you on Digi Capsule. ${variables.summary || "Sign in when a portal is available."} This message does not include the memory itself.`;
     case "review_recovered":
       return `${author} confirmed they are reachable. The release review has stopped. Nothing further will be sent from that review.`;
@@ -60,14 +70,15 @@ function safeVariables(templateId: string, variables: Record<string, string>): R
 
 export async function deliverEmail(
   prisma: PrismaClient,
-  notice: Notice,
+  notice: Notice & { channel?: "email" | "sms" },
 ): Promise<{ id: string; status: string; providerMessageId: string | null }> {
+  const channel = notice.channel ?? "email";
   const destinationHash = createHash("sha256").update(notice.to.toLowerCase()).digest("hex");
   try {
     const created = await prisma.notificationDelivery.create({
       data: {
         idempotencyKey: notice.idempotencyKey,
-        channel: "email",
+        channel,
         templateId: notice.templateId,
         destinationHash,
         status: "queued",

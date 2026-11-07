@@ -5,7 +5,7 @@ import { COOLING_OFF_DAYS, QUORUM_REQUIRED } from "@digi/shared";
 import { requireUser } from "../auth";
 import { isTestMode, isVerificationReleaseEnabled } from "../env";
 import { AppError, fromZod } from "../errors";
-import { currentInstant, setSimulatedNow } from "../lib/clock";
+import { readDeveloperClock, serverNow, setSimulatedNow } from "../lib/clock";
 import { runWorkerTick } from "../services/worker-tick";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,7 +21,8 @@ export async function devRoutes(app: FastifyInstance) {
     await requireUser(request);
     return {
       testMode: true,
-      simulatedNow: await currentInstant(app.prisma),
+      simulatedNow: await readDeveloperClock(app.prisma),
+      serverTime: serverNow().toISOString(),
       verificationReleasesEnabled: isVerificationReleaseEnabled(),
       productionReleaseLocked: true,
     };
@@ -38,7 +39,7 @@ export async function devRoutes(app: FastifyInstance) {
       })
       .safeParse(request.body ?? {});
     if (!parsed.success) throw fromZod(parsed.error);
-    const current = await currentInstant(app.prisma);
+    const current = await readDeveloperClock(app.prisma);
     let next = parsed.data.simulatedNow ? new Date(parsed.data.simulatedNow) : current;
     if (parsed.data.advanceDays) next = new Date(next.getTime() + parsed.data.advanceDays * DAY_MS);
     if (parsed.data.advanceMinutes) next = new Date(next.getTime() + parsed.data.advanceMinutes * 60 * 1000);
@@ -49,7 +50,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.post("/dev/worker/tick", async (request) => {
     assertTestConsole();
     await requireUser(request);
-    return runWorkerTick(app.prisma);
+    return runWorkerTick(app.prisma, { simulated: true });
   });
 
   app.get("/dev/inbox", async (request) => {
@@ -81,7 +82,7 @@ export async function devRoutes(app: FastifyInstance) {
     const verifiers = await app.prisma.contactRole.count({
       where: { role: "verifier", revokedAt: null, channelVerifiedAt: { not: null }, person: { ownerUserId: user.id } },
     });
-    const now = await currentInstant(app.prisma);
+    const now = await readDeveloperClock(app.prisma);
     const created = await app.prisma.verificationCase.create({
       data: {
         subjectUserId: user.id,
@@ -115,7 +116,7 @@ export async function devRoutes(app: FastifyInstance) {
     });
     const allowed = person?.roles.some((role) => !role.revokedAt && role.channelVerifiedAt && (role.role === "verifier" || role.role === "trusted_contact"));
     if (!person || !allowed) throw new AppError(403, "FORBIDDEN", "This contact cannot make a statement on the review.");
-    const now = await currentInstant(app.prisma);
+    const now = await readDeveloperClock(app.prisma);
     await app.prisma.attestation.upsert({
       where: { caseId_personId: { caseId: review.id, personId: person.id } },
       create: { caseId: review.id, personId: person.id, position: parsed.data.position, note: parsed.data.note, attestedAt: now },

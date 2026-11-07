@@ -21,6 +21,10 @@ describe("scheduled delivery", () => {
       displayName: "Avery",
       email: "avery@example.test",
     });
+    const blake = await addVerifiedContact(app, author.cookie, {
+      displayName: "Blake",
+      email: "blake@example.test",
+    });
     const stranger = await addVerifiedContact(app, author.cookie, {
       displayName: "Not Selected",
       email: "stranger@example.test",
@@ -61,7 +65,7 @@ describe("scheduled delivery", () => {
         localDate: "2026-06-02",
         localTime: "09:00",
         timeZone: "UTC",
-        recipientIds: [recipient.id],
+        recipientIds: [recipient.id, blake.id],
       },
     });
     expect(scheduled.statusCode).toBe(200);
@@ -72,19 +76,23 @@ describe("scheduled delivery", () => {
       payload: { simulatedNow: "2026-06-02T09:00:00.000Z" },
     });
     const first = await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
-    expect(first.json().calendarJobsSent).toBe(1);
+    expect(first.json().calendarJobsSent).toBe(2);
     const second = await app.inject({ method: "POST", url: "/v1/dev/worker/tick", headers: { cookie: author.cookie } });
     expect(second.json().calendarJobsSent).toBe(0);
     const jobs = await app.prisma.releaseJob.findMany();
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.status).toBe("sent");
-    expect(jobs[0]?.personId).toBe(recipient.id);
-    expect(jobs[0]?.personId).not.toBe(stranger.id);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.every((job) => job.status === "sent")).toBe(true);
+    expect(jobs.map((job) => job.personId).sort()).toEqual([recipient.id, blake.id].sort());
+    expect(jobs.some((job) => job.personId === stranger.id)).toBe(false);
     const notices = await app.prisma.notificationDelivery.findMany({ where: { templateId: "memory_ready" } });
-    expect(notices).toHaveLength(1);
+    expect(notices).toHaveLength(2);
     const inbox = await app.prisma.devMessage.findMany({ where: { templateId: "memory_ready" } });
-    expect(JSON.stringify(inbox)).not.toContain("SECRET_LETTER_PHRASE");
-    expect(inbox[0]?.destination).toBe("avery@example.test");
+    expect(inbox).toHaveLength(2);
+    expect(JSON.stringify(inbox)).toContain("SECRET_LETTER_PHRASE");
+    expect(JSON.stringify(inbox)).toContain("dot.png");
+    expect(JSON.stringify(inbox)).toContain("clip.mp4");
+    expect(inbox.map((message) => message.destination).sort()).toEqual(["avery@example.test", "blake@example.test"]);
+    expect(inbox.some((message) => message.destination === "stranger@example.test")).toBe(false);
     const memory = await app.inject({ method: "GET", url: `/v1/memories/${id}`, headers: { cookie: author.cookie } });
     expect(memory.json().memory.status).toBe("released");
     expect(memory.json().memory.attachments).toHaveLength(2);

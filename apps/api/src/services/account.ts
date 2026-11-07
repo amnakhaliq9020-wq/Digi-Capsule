@@ -82,6 +82,22 @@ export async function confirmAlive(prisma: PrismaClient, userId: string) {
     throw new Error("NO_OPEN_CYCLE");
   }
   const due = nextDueAt(at, policy.intervalDays);
+  if (cycle.dueAt.getTime() === due.getTime()) {
+    const recovery = await prisma.$transaction(async (tx) => {
+      await tx.checkInEvent.create({ data: { cycleId: cycle.id, type: "confirmed", at } });
+      await tx.checkInPolicy.update({ where: { userId }, data: { nextDueAt: due } });
+      const result = await recoverOpenReview(tx, userId, at);
+      await audit(tx, {
+        actorUserId: userId,
+        action: "check_in.confirmed",
+        entityType: "check_in_cycle",
+        entityId: cycle.id,
+        metadata: { method: "session", sameInstant: true },
+      });
+      return result;
+    });
+    return { confirmedAt: at, nextDueAt: due, reviewStopped: recovery.recovered };
+  }
   const recovery = await prisma.$transaction(async (tx) => {
     await tx.checkInCycle.update({
       where: { id: cycle.id },

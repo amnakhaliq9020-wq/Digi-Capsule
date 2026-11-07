@@ -15,10 +15,10 @@ await boss.createQueue("digi-tick");
 await boss.schedule("digi-tick", "* * * * *", {}, { tz: "UTC" });
 await boss.work("digi-tick", async () => {
   const result = await runWorkerTick(prisma);
-  console.info("[worker] tick", result);
+  console.info("[worker] tick (server time)", result);
 });
 
-console.info("Digi Capsule worker started. Calendar rules and check-in reminders run every minute.");
+console.info("Digi Capsule worker started. It uses real server time and checks every minute. The test-console clock is separate.");
 console.info(`Verification content release enabled: ${process.env.VERIFICATION_RELEASES_ENABLED === "true" && process.env.NODE_ENV !== "production"}`);
 
 async function shutdown() {

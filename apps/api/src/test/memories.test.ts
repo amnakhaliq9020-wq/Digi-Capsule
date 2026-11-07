@@ -137,4 +137,52 @@ describe("memories, media, and recipients", () => {
     expect(saved.json().memory.recipients).toHaveLength(1);
     expect(saved.json().memory.deliveryMode).toBe("on_date");
   });
+
+  it("rejects a wall-clock tomorrow that is behind the test clock", async () => {
+    const author = await registerUser(app, "tomorrow@example.test");
+    await verifyEmail(app, author.cookie, author.token);
+    const recipient = await addVerifiedContact(app, author.cookie, {
+      displayName: "Sam",
+      email: "sam-tomorrow@example.test",
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/memories",
+      headers: { cookie: author.cookie },
+      payload: { title: "Tomorrow", body: "See you then" },
+    });
+    const id = created.json().memory.id as string;
+    const clock = await app.inject({
+      method: "POST",
+      url: "/v1/dev/clock",
+      headers: { cookie: author.cookie },
+      payload: { simulatedNow: "2027-02-16T10:00:00.000Z" },
+    });
+    expect(clock.statusCode).toBe(200);
+    const scheduled = await app.inject({
+      method: "POST",
+      url: `/v1/memories/${id}/schedule`,
+      headers: { cookie: author.cookie },
+      payload: {
+        mode: "on_date",
+        localDate: "2026-11-07",
+        localTime: "09:00",
+        timeZone: "Asia/Karachi",
+        recipientIds: [recipient.id],
+      },
+    });
+    expect(scheduled.statusCode).toBe(400);
+    expect(scheduled.json().error.code).toBe("VALIDATION_ERROR");
+    expect(scheduled.json().error.message).toContain("16 February 2027");
+    expect(scheduled.json().error.message).toContain("Asia/Karachi");
+    expect(scheduled.json().error.message).toContain("ahead of the real time");
+    expect(scheduled.json().error.message).toContain("test clock");
+  });
+
+  it("returns a readable message for an unknown route", async () => {
+    const missing = await app.inject({ method: "GET", url: "/v1/does-not-exist" });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error.code).toBe("NOT_FOUND");
+    expect(missing.json().error.message).toContain("/v1/does-not-exist");
+  });
 });

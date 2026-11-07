@@ -2,12 +2,12 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="hero card">
+    <main className="hero card" id="content">
       <img className="logo" src="/logo.png" alt="Digi Capsule" width={72} height={72} />
       <p className="pill">Private family legacy</p>
       <h1>Keep a memory, and decide who may receive it.</h1>
       <p className="muted">
-        Digi Capsule stores letters, photos, and videos for the people you choose. A missed check-in means we have not heard from you. It does not send your memories.
+        Digi Capsule stores letters, photos, and videos for the people you choose. A missed check-in means we have not heard from you. The warnings do not include your memories. A test delivery stays in the local test inbox, and production does not send it.
       </p>
       <div className="row">
         <Link className="button" href="/signup">Create an account</Link>

@@ -2,15 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-
-const zones = ["UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Asia/Karachi", "Asia/Dubai", "Australia/Sydney"];
+import { zonesWith } from "@/lib/time";
 
 export default function SignupPage() {
   const router = useRouter();
   const [form, setForm] = useState({ displayName: "", email: "", password: "", timeZone: "Asia/Karachi" });
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected) set("timeZone", detected);
+  }, []);
 
   function set(key: string, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -34,17 +38,18 @@ export default function SignupPage() {
       <p className="muted">Use an email you can open. This account is only for you.</p>
       <form onSubmit={submit}>
         <label htmlFor="name">Your name</label>
-        <input id="name" value={form.displayName} onChange={(event) => set("displayName", event.target.value)} required />
+        <input id="name" autoComplete="name" value={form.displayName} onChange={(event) => set("displayName", event.target.value)} required />
         <label htmlFor="email">Email</label>
-        <input id="email" type="email" value={form.email} onChange={(event) => set("email", event.target.value)} required />
+        <input id="email" type="email" autoComplete="email" value={form.email} onChange={(event) => set("email", event.target.value)} required />
         <label htmlFor="password">Password</label>
-        <input id="password" type="password" value={form.password} onChange={(event) => set("password", event.target.value)} required />
-        <p className="muted">At least 10 characters, with a letter and a number.</p>
+        <input id="password" type="password" autoComplete="new-password" aria-describedby="password-help" value={form.password} onChange={(event) => set("password", event.target.value)} required />
+        <p id="password-help" className="muted">At least 10 characters, with a letter and a number.</p>
         <label htmlFor="zone">Time zone</label>
-        <select id="zone" value={form.timeZone} onChange={(event) => set("timeZone", event.target.value)}>
-          {zones.map((zone) => <option key={zone}>{zone}</option>)}
+        <p id="zone-help" className="muted">Detected from this device. You can change it now or later in Time zone.</p>
+        <select id="zone" aria-describedby="zone-help" value={form.timeZone} onChange={(event) => set("timeZone", event.target.value)}>
+          {zonesWith(form.timeZone).map((zone) => <option key={zone}>{zone}</option>)}
         </select>
-        {error ? <p className="error">{error}</p> : null}
+        {error ? <p className="error" role="alert">{error}</p> : null}
         <p><button type="submit">Create account</button></p>
       </form>
       <p className="muted">Already registered? <Link href="/login">Sign in</Link></p>

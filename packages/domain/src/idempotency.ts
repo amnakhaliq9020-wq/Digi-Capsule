@@ -17,3 +17,8 @@ export function unreachableNoticeKey(cycleId: string, personId: string): string 
 export function simulatedReleaseKey(cycleId: string): string {
   return `cycle:${cycleId}:simulated-release:email`;
 }
+
+/** Test-mode delivery after the day-21 record. Separate from a verification-case job. */
+export function testCheckInJobKey(cycleId: string, itemId: string, personId: string): string {
+  return `test-check-in:${cycleId}:${itemId}:${personId}`;
+}

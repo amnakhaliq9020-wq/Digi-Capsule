@@ -27,10 +27,10 @@ export default function LoginPage() {
       <h1>Sign in</h1>
       <form onSubmit={submit}>
         <label htmlFor="email">Email</label>
-        <input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        <input id="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required aria-invalid={error ? true : undefined} />
         <label htmlFor="password">Password</label>
-        <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-        {error ? <p className="error">{error}</p> : null}
+        <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required aria-invalid={error ? true : undefined} />
+        {error ? <p className="error" role="alert">{error}</p> : null}
         <p><button type="submit">Sign in</button></p>
       </form>
       <p className="muted">New here? <Link href="/signup">Create an account</Link></p>

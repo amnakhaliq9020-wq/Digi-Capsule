@@ -16,11 +16,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const ifIAmGone = items.filter((item) => item.releaseRules.some((rule) => rule.trigger === "after_verification")).length;
     const upcoming = items
       .flatMap((item) => item.releaseRules)
-      .filter((rule) => rule.trigger === "exact_time" && rule.nextRunAt && rule.nextRunAt >= now)
+      .filter((rule) => rule.trigger === "exact_time" && rule.nextRunAt)
       .sort((a, b) => a.nextRunAt!.getTime() - b.nextRunAt!.getTime())[0];
     const policy = await app.prisma.checkInPolicy.findUnique({ where: { userId: user.id } });
     const last = await app.prisma.checkInCycle.findFirst({
-      where: { userId: user.id, state: "confirmed" },
+      where: { userId: user.id, state: "confirmed", confirmedAt: { lte: now } },
       orderBy: { confirmedAt: "desc" },
     });
     const cycle = await app.prisma.checkInCycle.findFirst({

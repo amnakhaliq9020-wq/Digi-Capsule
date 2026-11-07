@@ -8,6 +8,7 @@ import {
   shouldNotifyTrustedContacts,
   shouldRecordSimulatedRelease,
   simulatedReleaseKey,
+  testCheckInJobKey,
   unreachableNoticeKey,
   verificationJobKey,
   verificationReducer,
@@ -15,8 +16,9 @@ import {
 } from "@digi/domain";
 import { CANCELLATION_WINDOW_HOURS, MAX_RELEASE_ATTEMPTS, REMINDER_OFFSETS_DAYS, SIMULATED_RELEASE_AFTER_DAYS, UNREACHABLE_AFTER_DAYS } from "@digi/shared";
 import { isTestMode, isVerificationReleaseEnabled } from "../env";
+import { decryptText } from "../lib/crypto";
 import { isUniqueViolation } from "../errors";
-import { currentInstant } from "../lib/clock";
+import { currentInstant, readDeveloperClock } from "../lib/clock";
 import { deliverEmail } from "../lib/notify";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -26,8 +28,8 @@ function storedState(state: VerificationState): StoredVerificationState {
   return state;
 }
 
-export async function runWorkerTick(prisma: PrismaClient) {
-  const now = await currentInstant(prisma);
+export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?: boolean }) {
+  const now = options?.simulated ? await readDeveloperClock(prisma) : await currentInstant(prisma);
   const calendarJobsSent = await processCalendar(prisma, now);
   const { remindersSent, simulatedReleasesRecorded } = await processReminders(prisma, now);
   let verificationJobsSent = 0;
@@ -197,6 +199,7 @@ async function sendMemoryJob(
     }
   }
   if (!job || job.status === "sent" || job.status === "cancelled" || job.status === "dead") return false;
+  const packaged = isTestMode() ? await testDeliveryCopy(prisma, input.capsuleItemId) : null;
   if (job.attemptCount >= MAX_RELEASE_ATTEMPTS) {
     await prisma.releaseJob.update({ where: { id: job.id }, data: { status: "dead" } });
     return false;
@@ -215,6 +218,9 @@ async function sendMemoryJob(
         itemId: input.capsuleItemId,
         personId: input.personId,
         summary: "A memory is ready for them.",
+        ...(packaged
+          ? { title: packaged.title, letter: packaged.letter, files: packaged.files }
+          : {}),
       },
       idempotencyKey: `job:${job.id}:memory_ready`,
       relatedType: "release_job",
@@ -268,6 +274,7 @@ async function processReminders(prisma: PrismaClient, now: Date) {
         variables: {
           authorName: cycle.user.profile?.displayName || "there",
           stage,
+          channel: "email",
         },
         idempotencyKey: reminderKey(cycle.id, offset, "email"),
         relatedType: "check_in_cycle",
@@ -289,6 +296,21 @@ async function processReminders(prisma: PrismaClient, now: Date) {
           });
           sent += 1;
         }
+      }
+      if (isTestMode()) {
+        await deliverEmail(prisma, {
+          to: `sms-mock:${cycle.user.email}`,
+          channel: "sms",
+          templateId,
+          variables: {
+            authorName: cycle.user.profile?.displayName || "there",
+            stage,
+            channel: "sms",
+          },
+          idempotencyKey: reminderKey(cycle.id, offset, "sms"),
+          relatedType: "check_in_cycle",
+          relatedId: cycle.id,
+        });
       }
     }
     if (offsets.some((offset) => offset > 0)) {
@@ -313,6 +335,7 @@ async function processReminders(prisma: PrismaClient, now: Date) {
         relatedId: cycle.id,
       });
       if ((notice.status === "queued" || notice.status === "sent") && !simulatedAlready && notice.providerMessageId) {
+        await deliverTestCheckInMemories(prisma, cycle.id, cycle.userId, now);
         await prisma.checkInEvent.create({
           data: {
             cycleId: cycle.id,
@@ -389,6 +412,61 @@ export async function advanceVerificationWindows(prisma: PrismaClient, now: Date
         where: { id: review.id },
         data: { state: storedState(next.state) },
       });
+    }
+  }
+}
+
+async function testDeliveryCopy(prisma: PrismaClient, itemId: string) {
+  const item = await prisma.capsuleItem.findUnique({
+    where: { id: itemId },
+    include: { media: { include: { asset: true } } },
+  });
+  if (!item) return { title: "Memory", letter: "", files: "none" };
+  const letter = item.bodyCiphertext && item.bodyNonce && item.bodyTag
+    ? decryptText(Buffer.from(item.bodyCiphertext), Buffer.from(item.bodyNonce), Buffer.from(item.bodyTag))
+    : "";
+  const files = item.media
+    .filter((link) => !link.asset.deletedAt)
+    .map((link) => `${link.asset.originalName} (${link.asset.mimeType}, ${link.asset.byteSize} bytes)`)
+    .join(", ");
+  return { title: item.title, letter, files: files || "none" };
+}
+
+/** Test mode only. The caller already proved this is the first day-21 record for the cycle. */
+async function deliverTestCheckInMemories(prisma: PrismaClient, cycleId: string, userId: string, now: Date) {
+  const rules = await prisma.releaseRule.findMany({
+    where: {
+      status: "active",
+      trigger: "after_verification",
+      item: { status: "scheduled", capsule: { ownerUserId: userId } },
+    },
+    include: {
+      item: {
+        include: {
+          capsule: { include: { owner: { include: { profile: true } } } },
+          grants: { where: { revokedAt: null, visibility: "released_only" }, include: { person: true } },
+        },
+      },
+    },
+  });
+  for (const rule of rules) {
+    for (const grant of rule.item.grants) {
+      if (!grant.person.email) continue;
+      await sendMemoryJob(prisma, {
+        idempotencyKey: testCheckInJobKey(cycleId, rule.item.id, grant.person.id),
+        releaseRuleId: rule.id,
+        verificationCaseId: null,
+        capsuleItemId: rule.item.id,
+        personId: grant.person.id,
+        occurrenceAt: now,
+        to: grant.person.email,
+        authorName: rule.item.capsule.owner.profile?.displayName || "Someone",
+      });
+    }
+    const jobs = await prisma.releaseJob.findMany({ where: { releaseRuleId: rule.id, status: "sent" } });
+    if (rule.item.grants.length > 0 && jobs.length >= rule.item.grants.length) {
+      await prisma.capsuleItem.update({ where: { id: rule.item.id }, data: { status: "released", releasedAt: now } });
+      await prisma.releaseRule.update({ where: { id: rule.id }, data: { status: "completed", nextRunAt: null } });
     }
   }
 }

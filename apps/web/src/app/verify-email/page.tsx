@@ -35,8 +35,8 @@ export default function VerifyEmailPage() {
       <form onSubmit={submit}>
         <label htmlFor="token">Verification code</label>
         <input id="token" value={token} onChange={(event) => setToken(event.target.value)} required />
-        {error ? <p className="error">{error}</p> : null}
-        {done ? <p>Email confirmed.</p> : null}
+        {error ? <p className="error" role="alert">{error}</p> : null}
+        {done ? <p className="banner">Email confirmed.</p> : null}
         <p><button type="submit">Confirm email</button></p>
       </form>
     </main>

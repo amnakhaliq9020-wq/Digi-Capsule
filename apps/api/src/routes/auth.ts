@@ -160,6 +160,24 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
+  app.patch("/auth/me", async (request) => {
+    const user = await requireUser(request);
+    const parsed = z.object({ timeZone: z.string().trim().min(1, "Choose a time zone.") }).safeParse(request.body);
+    if (!parsed.success) throw fromZod(parsed.error);
+    assertTimeZone(parsed.data.timeZone);
+    await app.prisma.profile.update({ where: { userId: user.id }, data: { timeZone: parsed.data.timeZone } });
+    await audit(app.prisma, { actorUserId: user.id, action: "profile.timezone_updated", entityType: "user", entityId: user.id });
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        timeZone: parsed.data.timeZone,
+        emailVerified: Boolean(user.emailVerifiedAt),
+      },
+    };
+  });
+
   app.post("/auth/verify-email", async (request) => {
     const user = await requireUser(request);
     const parsed = z.object({ token: z.string().min(10, "Enter the verification code.") }).safeParse(request.body);

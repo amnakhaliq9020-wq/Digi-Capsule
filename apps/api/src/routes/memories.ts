@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireUser } from "../auth";
 import { AppError, fromZod } from "../errors";
 import { audit } from "../lib/audit";
-import { currentInstant } from "../lib/clock";
+import { currentInstant, usesSimulationClock } from "../lib/clock";
 import { decryptText, encryptText } from "../lib/crypto";
 
 type ItemGraph = CapsuleItem & {
@@ -14,6 +14,24 @@ type ItemGraph = CapsuleItem & {
   releaseJobs: ReleaseJob[];
   media: { position: number; asset: { id: string; mimeType: string; byteSize: number; originalName: string; deletedAt: Date | null } }[];
 };
+
+function futureDeliveryMessage(now: Date, timeZone: string) {
+  const shown = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(now);
+  const clock = `${shown} (${timeZone})`;
+  if (usesSimulationClock() && now.getTime() > Date.now() + 2 * 60 * 1000) {
+    return `Choose a delivery time after the test clock (${clock}). The test clock is ahead of the real time, so a date on the calendar can still be too early. Set the test clock to now, or pick a later date.`;
+  }
+  if (usesSimulationClock()) return `Choose a delivery time after the test clock (${clock}).`;
+  return `Choose a delivery time after ${clock}. That time is already in the past.`;
+}
 
 function activeRule(item: { releaseRules: ReleaseRule[] }) {
   return item.releaseRules.find((rule) => rule.status === "active" || rule.status === "paused") ?? null;
@@ -215,7 +233,7 @@ export async function memoryRoutes(app: FastifyInstance) {
         assertFutureInstant(nextRunAt, now);
       } catch (error) {
         const message = error instanceof Error && error.message === "DELIVERY_MUST_BE_IN_THE_FUTURE"
-          ? "Choose a delivery time in the future."
+          ? futureDeliveryMessage(now, timeZone)
           : "Choose a valid date, time, and time zone.";
         throw new AppError(400, "VALIDATION_ERROR", message);
       }
