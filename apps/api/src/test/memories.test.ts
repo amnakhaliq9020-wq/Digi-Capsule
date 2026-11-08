@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { addVerifiedContact, createApp, multipart, png, registerUser, resetDatabase, verifyEmail } from "./helpers";
+import { addVerifiedContact, createApp, mp4, multipart, png, registerUser, resetDatabase, verifyEmail } from "./helpers";
 
 const app = await createApp();
 afterAll(async () => app.close());
@@ -50,7 +50,7 @@ describe("memories, media, and recipients", () => {
     });
     expect(uploaded.statusCode).toBe(201);
     const assetId = uploaded.json().attachment.id as string;
-    const video = multipart(Buffer.from("not-a-real-video-but-typed"), "clip.mp4", "video/mp4");
+    const video = multipart(mp4, "clip.mp4", "video/mp4");
     const videoUpload = await app.inject({
       method: "POST",
       url: `/v1/memories/${id}/attachments`,
@@ -97,6 +97,15 @@ describe("memories, media, and recipients", () => {
       payload: text.body,
     });
     expect(rejected.statusCode).toBe(400);
+    const disguised = multipart(Buffer.from("<html>not a png</html>"), "photo.png", "image/png");
+    const spoofed = await app.inject({
+      method: "POST",
+      url: `/v1/memories/${id}/attachments`,
+      headers: { ...disguised.headers, cookie: author.cookie },
+      payload: disguised.body,
+    });
+    expect(spoofed.statusCode).toBe(400);
+    expect(spoofed.json().error.code).toBe("UNSUPPORTED_FILE");
     const contact = await app.inject({
       method: "POST",
       url: "/v1/contacts",
@@ -177,6 +186,42 @@ describe("memories, media, and recipients", () => {
     expect(scheduled.json().error.message).toContain("Asia/Karachi");
     expect(scheduled.json().error.message).toContain("ahead of the real time");
     expect(scheduled.json().error.message).toContain("test clock");
+  });
+
+  it("rejects 29 February in a non-leap year", async () => {
+    const author = await registerUser(app, "leap@example.test");
+    await verifyEmail(app, author.cookie, author.token);
+    const recipient = await addVerifiedContact(app, author.cookie, {
+      displayName: "Sam",
+      email: "sam-leap@example.test",
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/memories",
+      headers: { cookie: author.cookie },
+      payload: { title: "Leap", body: "Not a real day" },
+    });
+    const id = created.json().memory.id as string;
+    await app.inject({
+      method: "POST",
+      url: "/v1/dev/clock",
+      headers: { cookie: author.cookie },
+      payload: { simulatedNow: "2027-01-01T00:00:00.000Z" },
+    });
+    const scheduled = await app.inject({
+      method: "POST",
+      url: `/v1/memories/${id}/schedule`,
+      headers: { cookie: author.cookie },
+      payload: {
+        mode: "on_date",
+        localDate: "2027-02-29",
+        localTime: "09:00",
+        timeZone: "UTC",
+        recipientIds: [recipient.id],
+      },
+    });
+    expect(scheduled.statusCode).toBe(400);
+    expect(scheduled.json().error.message).toContain("valid date");
   });
 
   it("returns a readable message for an unknown route", async () => {

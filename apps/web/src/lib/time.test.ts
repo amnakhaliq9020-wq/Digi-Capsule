@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deliveryModeLabel, formatWhen, memoryStatusLabel, testClockGuidance } from "./time";
+import { deliveryModeLabel, formatWhen, memoryStatusLabel, testClockGuidance, waitingDeliveryNote } from "./time";
 
 describe("formatWhen", () => {
   it("uses a 12-hour clock so midnight matches the computer clock", () => {
@@ -28,6 +28,15 @@ describe("testClockGuidance", () => {
     const text = testClockGuidance("2027-02-16T10:00:00.000Z", wall);
     expect(text).toContain("ahead of your computer");
     expect(text).toContain("16 February 2027 at 3:00 pm");
+  });
+});
+
+describe("waitingDeliveryNote", () => {
+  it("keeps a future date unsent and does not send a passed server date from the test clock", () => {
+    expect(waitingDeliveryNote(false, true)).toBe("Saved, not sent yet.");
+    expect(waitingDeliveryNote(true, true)).toContain("server clock");
+    expect(waitingDeliveryNote(true, true)).not.toContain("test clock");
+    expect(waitingDeliveryNote(true, false)).toContain("next worker run");
   });
 });
 

@@ -28,23 +28,29 @@ function storedState(state: VerificationState): StoredVerificationState {
   return state;
 }
 
-export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?: boolean }) {
+export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?: boolean; ownerUserId?: string }) {
   const now = options?.simulated ? await readDeveloperClock(prisma) : await currentInstant(prisma);
-  const calendarJobsSent = await processCalendar(prisma, now);
-  const { remindersSent, simulatedReleasesRecorded } = await processReminders(prisma, now);
+  const ownerUserId = options?.ownerUserId;
+  const calendarJobsSent = await processCalendar(prisma, now, ownerUserId);
+  const { remindersSent, simulatedReleasesRecorded } = await processReminders(prisma, now, ownerUserId);
   let verificationJobsSent = 0;
   if (isTestMode() || isVerificationReleaseEnabled()) {
-    await advanceVerificationWindows(prisma, now);
+    await advanceVerificationWindows(prisma, now, ownerUserId);
   }
   if (isVerificationReleaseEnabled()) {
-    verificationJobsSent = await processVerificationReleases(prisma, now);
+    verificationJobsSent = await processVerificationReleases(prisma, now, ownerUserId);
   }
   return { now, calendarJobsSent, remindersSent, simulatedReleasesRecorded, verificationJobsSent };
 }
 
-async function processCalendar(prisma: PrismaClient, now: Date) {
+async function processCalendar(prisma: PrismaClient, now: Date, ownerUserId?: string) {
   const rules = await prisma.releaseRule.findMany({
-    where: { status: "active", trigger: "exact_time", nextRunAt: { lte: now } },
+    where: {
+      status: "active",
+      trigger: "exact_time",
+      nextRunAt: { lte: now },
+      ...(ownerUserId ? { item: { capsule: { ownerUserId } } } : {}),
+    },
     include: {
       item: {
         include: {
@@ -86,9 +92,10 @@ async function processCalendar(prisma: PrismaClient, now: Date) {
   return sent;
 }
 
-async function processVerificationReleases(prisma: PrismaClient, now: Date) {
+async function processVerificationReleases(prisma: PrismaClient, now: Date, ownerUserId?: string) {
   const cases = await prisma.verificationCase.findMany({
     where: {
+      ...(ownerUserId ? { subjectUserId: ownerUserId } : {}),
       OR: [
         { state: "release_authorized", cancellationWindowEndsAt: { lte: now } },
         { state: "releasing" },
@@ -241,9 +248,13 @@ async function sendMemoryJob(
   }
 }
 
-async function processReminders(prisma: PrismaClient, now: Date) {
+async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: string) {
   const cycles = await prisma.checkInCycle.findMany({
-    where: { state: { in: ["due", "reminded", "missed_unreachable"] }, dueAt: { lte: now } },
+    where: {
+      state: { in: ["due", "reminded", "missed_unreachable"] },
+      dueAt: { lte: now },
+      ...(ownerUserId ? { userId: ownerUserId } : {}),
+    },
     include: {
       events: true,
       user: { include: { profile: true, checkInPolicy: true } },
@@ -383,9 +394,12 @@ async function processReminders(prisma: PrismaClient, now: Date) {
   return { remindersSent: sent, simulatedReleasesRecorded };
 }
 
-export async function advanceVerificationWindows(prisma: PrismaClient, now: Date) {
+export async function advanceVerificationWindows(prisma: PrismaClient, now: Date, ownerUserId?: string) {
   const cases = await prisma.verificationCase.findMany({
-    where: { state: { in: ["cooling_off", "cancellation_window"] } },
+    where: {
+      state: { in: ["cooling_off", "cancellation_window"] },
+      ...(ownerUserId ? { subjectUserId: ownerUserId } : {}),
+    },
   });
   for (const review of cases) {
     if (review.state === "cooling_off" && review.coolingOffEndsAt && review.coolingOffEndsAt <= now) {

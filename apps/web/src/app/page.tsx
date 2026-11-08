@@ -1,18 +1,11 @@
-import Link from "next/link";
+import type { Metadata } from "next";
+import { LandingPage } from "@/components/landing/LandingPage";
+
+export const metadata: Metadata = {
+  title: "Digi Capsule — Your Memories. Your Moments. Your Legacy.",
+  description: "Digi Capsule keeps private letters, photographs, and videos for the people you choose, and holds them until a date you set.",
+};
 
 export default function HomePage() {
-  return (
-    <main className="hero card" id="content">
-      <img className="logo" src="/logo.png" alt="Digi Capsule" width={72} height={72} />
-      <p className="pill">Private family legacy</p>
-      <h1>Keep a memory, and decide who may receive it.</h1>
-      <p className="muted">
-        Digi Capsule stores letters, photos, and videos for the people you choose. A missed check-in means we have not heard from you. The warnings do not include your memories. A test delivery stays in the local test inbox, and production does not send it.
-      </p>
-      <div className="row">
-        <Link className="button" href="/signup">Create an account</Link>
-        <Link className="button secondary" href="/login">Sign in</Link>
-      </div>
-    </main>
-  );
+  return <LandingPage />;
 }

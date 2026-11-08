@@ -1,6 +1,15 @@
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { buildApp } from "../app";
 
+export const mp4 = Buffer.from([
+  0x00, 0x00, 0x00, 0x18,
+  0x66, 0x74, 0x79, 0x70,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x00, 0x00,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x00, 0x00,
+]);
+
 export const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",

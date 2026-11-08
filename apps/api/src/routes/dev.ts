@@ -49,14 +49,27 @@ export async function devRoutes(app: FastifyInstance) {
 
   app.post("/dev/worker/tick", async (request) => {
     assertTestConsole();
-    await requireUser(request);
-    return runWorkerTick(app.prisma, { simulated: true });
+    const user = await requireUser(request);
+    return runWorkerTick(app.prisma, { simulated: true, ownerUserId: user.id });
   });
 
   app.get("/dev/inbox", async (request) => {
     assertTestConsole();
-    await requireUser(request);
-    const messages = await app.prisma.devMessage.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
+    const user = await requireUser(request);
+    const contacts = await app.prisma.person.findMany({
+      where: { ownerUserId: user.id },
+      select: { email: true },
+    });
+    const destinations = [
+      user.email,
+      `sms-mock:${user.email}`,
+      ...contacts.flatMap((contact) => (contact.email ? [contact.email] : [])),
+    ];
+    const messages = await app.prisma.devMessage.findMany({
+      where: { destination: { in: destinations } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
     return { messages };
   });
 

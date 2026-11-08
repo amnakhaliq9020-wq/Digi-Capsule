@@ -36,6 +36,15 @@ export function testClockGuidance(testClockIso: string, wallNow = Date.now()) {
   return `Test clock: ${shown}. This matches your computer. Pick a delivery time later than this.`;
 }
 
+/** A date is compared with the server clock. Test mode does not move that comparison onto the simulated clock. */
+export function waitingDeliveryNote(due: boolean, testMode: boolean): string {
+  if (!due) return "Saved, not sent yet.";
+  if (testMode) {
+    return "This time has passed on the server clock. The automatic worker sends it on its next run. The test console uses a separate clock and does not send this by itself.";
+  }
+  return "This time has passed. It sends on the next worker run.";
+}
+
 export function memoryStatusLabel(status: string) {
   if (status === "scheduled") return "Saved, not sent";
   if (status === "draft") return "Draft";

@@ -87,7 +87,7 @@ export default function DevConsolePage() {
   return (
     <Shell>
       <h1>Development test console</h1>
-      <p className="callout">Developer test clock only. Scheduling, I'm Alive, and the automatic worker use real server time. This clock does not change those. Run worker here uses the simulated clock and can act on records in this database. It does not send real email or SMS. Review release flag: {flag ? "on for this non-production process" : "off"}.</p>
+      <p className="callout">Developer test clock only. Scheduling, I'm Alive, and the automatic worker use real server time. This clock does not change those. Run worker here uses the simulated clock and only this account. It does not send real email or SMS. Review release flag: {flag ? "on for this non-production process" : "off"}.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
       <p>Simulated clock: {now ? formatWhen(now) : "…"}</p>
       <p>Server time: {serverTime ? formatWhen(serverTime) : "…"}</p>

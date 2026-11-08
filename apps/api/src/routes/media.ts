@@ -6,6 +6,21 @@ import { requireUser } from "../auth";
 import { env } from "../env";
 import { AppError } from "../errors";
 
+function matchesDeclaredType(mime: string, body: Buffer): boolean {
+  if (mime === "image/jpeg") return body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+  if (mime === "image/png") return body.length >= 8 && body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mime === "image/gif") {
+    const header = body.subarray(0, 6).toString("ascii");
+    return header === "GIF87a" || header === "GIF89a";
+  }
+  if (mime === "image/webp") {
+    return body.length >= 12 && body.subarray(0, 4).toString("ascii") === "RIFF" && body.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  if (mime === "video/webm") return body.length >= 4 && body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3;
+  if (mime === "video/mp4" || mime === "video/quicktime") return body.length >= 8 && body.subarray(4, 8).toString("ascii") === "ftyp";
+  return false;
+}
+
 function sanitizeName(name: string) {
   const base = path.basename(name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
   return base.slice(0, 120) || "upload";
@@ -37,6 +52,9 @@ export async function mediaRoutes(app: FastifyInstance) {
       throw new AppError(400, "FILE_TOO_LARGE", isPhoto ? "Photos must be 15 MB or smaller." : "Videos must be 100 MB or smaller.");
     }
     if (body.length === 0) throw new AppError(400, "VALIDATION_ERROR", "The file is empty.");
+    if (!matchesDeclaredType(mime, body)) {
+      throw new AppError(400, "UNSUPPORTED_FILE", "That file does not match the photo or video type it claims to be.");
+    }
     const asset = await app.prisma.mediaAsset.create({
       data: {
         ownerUserId: user.id,

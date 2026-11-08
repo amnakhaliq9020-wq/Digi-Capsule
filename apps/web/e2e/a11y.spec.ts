@@ -20,9 +20,10 @@ async function expectAccessible(page: Page) {
 }
 
 test("public pages stay accessible at every requested viewport", async ({ page }) => {
+  test.setTimeout(180_000);
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    for (const path of ["/", "/login", "/signup"]) {
+    for (const path of ["/", "/login", "/signup", "/privacy", "/terms", "/contact"]) {
       await page.goto(path);
       await expectNoOverflow(page);
       await expectAccessible(page);
@@ -35,9 +36,11 @@ test("keyboard reaches the account actions and the login fields", async ({ page 
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto("/");
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Create an account" })).toBeFocused();
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  const header = page.getByRole("banner");
+  await header.getByRole("link", { name: "Sign in" }).focus();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Sign in" })).toBeFocused();
+  await expect(header.getByRole("link", { name: "Get Started" })).toBeFocused();
   await page.goto("/login");
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("Email")).toBeFocused();

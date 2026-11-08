@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell, useTimeZone } from "@/components/Shell";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { deliveryModeLabel, formatWhen, memoryStatusLabel } from "@/lib/time";
 
 type Dashboard = {
@@ -33,6 +33,7 @@ function DashboardBody() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
   const timeZone = useTimeZone();
 
   useEffect(() => {
@@ -44,13 +45,14 @@ function DashboardBody() {
       setData(summary);
       setMemories(memoryList.memories);
       setContacts(contactList.contacts);
-    }).catch(() => undefined).finally(() => setReady(true));
+    }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the dashboard.")).finally(() => setReady(true));
   }, []);
 
   return (
     <>
       <h1>Dashboard</h1>
       <p className="muted">Saved for a date counts memories with a send date. Those memories are listed under Scheduled deliveries until they are sent. Check-in dates are a separate timer and do not send a memory.</p>
+      {error ? <p className="error" role="alert">{error}</p> : null}
       {data ? (
         <div className="grid">
           <article className="card stat"><span>Total memories</span><strong>{data.totalMemories}</strong></article>

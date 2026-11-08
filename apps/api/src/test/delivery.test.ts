@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { addVerifiedContact, createApp, multipart, png, registerUser, resetDatabase, verifyEmail } from "./helpers";
+import { addVerifiedContact, createApp, mp4, multipart, png, registerUser, resetDatabase, verifyEmail } from "./helpers";
 
 const app = await createApp();
 afterAll(async () => app.close());
@@ -43,7 +43,7 @@ describe("scheduled delivery", () => {
       headers: { ...photo.headers, cookie: author.cookie },
       payload: photo.body,
     });
-    const video = multipart(Buffer.from("fixture-video"), "clip.mp4", "video/mp4");
+    const video = multipart(mp4, "clip.mp4", "video/mp4");
     await app.inject({
       method: "POST",
       url: `/v1/memories/${id}/attachments`,

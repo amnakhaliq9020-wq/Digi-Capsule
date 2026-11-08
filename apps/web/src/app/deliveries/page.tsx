@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell, useTimeZone } from "@/components/Shell";
-import { api } from "@/lib/api";
-import { formatWhen } from "@/lib/time";
+import { ApiError, api } from "@/lib/api";
+import { formatWhen, waitingDeliveryNote } from "@/lib/time";
 
 type Delivery = {
   id: string;
@@ -36,6 +36,7 @@ function DeliveriesBody() {
   const [serverTime, setServerTime] = useState("");
   const [testMode, setTestMode] = useState(false);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
   const timeZone = useTimeZone();
 
   useEffect(() => {
@@ -50,7 +51,7 @@ function DeliveriesBody() {
       setIfGone(memories.memories.filter((memory) => memory.deliveryMode === "if_i_am_gone"));
       setServerTime(dashboard.serverTime);
       setTestMode(health.testMode);
-    }).catch(() => undefined).finally(() => setReady(true));
+    }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load deliveries.")).finally(() => setReady(true));
   }, []);
 
   const clock = serverTime ? new Date(serverTime).getTime() : Date.now();
@@ -59,6 +60,7 @@ function DeliveriesBody() {
     <>
       <h1>Scheduled deliveries</h1>
       <p className="muted">A saved date is not a sent message. The first list is every memory waiting for its date. A row in Sent appears after that time has passed and the worker has run once. Running the worker again does not add another row.</p>
+      {error ? <p className="error" role="alert">{error}</p> : null}
 
       <section className="section">
         <h2>Saved for a date</h2>
@@ -71,11 +73,7 @@ function DeliveriesBody() {
               <Link key={memory.id} className="item" href={`/memories/${memory.id}`}>
                 <strong>{memory.title}</strong>
                 <p className="muted">{memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "No recipient yet"}</p>
-                <p className="muted">Sends {formatWhen(when, timeZone)} ({memory.schedule?.timeZone}). {due
-                  ? testMode
-                    ? "This time has passed on the test clock. Open the test console and run the worker once to send it."
-                    : "This time has passed. It sends on the next worker run."
-                  : "Saved, not sent yet."}</p>
+                <p className="muted">Sends {formatWhen(when, timeZone)} ({memory.schedule?.timeZone}). {waitingDeliveryNote(due, testMode)}</p>
               </Link>
             );
           })}
