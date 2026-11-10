@@ -68,19 +68,23 @@ function MemoryDetail() {
       {memory ? (
         <article className="stack">
           <div className="title-row"><h1>{memory.title}</h1><span className="pill">{memoryStatusLabel(memory.status)}</span><span className="pill">{deliveryModeLabel(memory.deliveryMode)}</span></div>
-          <p className="preserve">{memory.body}</p>
-          <p className="muted">Recipients: {memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "None yet"}</p>
-          {memory.schedule?.nextRunAt ? <p className="muted">Sends {formatWhen(memory.schedule.nextRunAt, timeZone)} ({memory.schedule.timeZone}).{memory.delivery.sent > 0 ? "" : " This is saved and has not been sent."}</p> : null}
-          <p className="muted">Delivery status: {memory.delivery.sent > 0 ? `${memory.delivery.sent} sent` : memoryStatusLabel(memory.status)}</p>
-          <div className="media-grid">
-            {memory.attachments.map((file) => (
-              <figure key={file.id}>
-                {file.kind === "video"
-                  ? <video src={`/v1/media/${file.id}/content`} controls />
-                  : <img src={`/v1/media/${file.id}/content`} alt={file.originalName} />}
-                <a href={`/v1/media/${file.id}/content`} download={file.originalName}>Download {file.originalName}</a>
-              </figure>
-            ))}
+          <div className="card stack">
+            <p className="preserve">{memory.body || "This memory has no letter."}</p>
+            <p className="muted">Recipients: {memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "None yet"}</p>
+            {memory.schedule?.nextRunAt ? <p className="muted">Sends {formatWhen(memory.schedule.nextRunAt, timeZone)} ({memory.schedule.timeZone}).{memory.delivery.sent > 0 ? "" : " This is saved and has not been sent."}</p> : null}
+            <p className="muted">Delivery status: {memory.delivery.sent > 0 ? `${memory.delivery.sent} sent` : memoryStatusLabel(memory.status)}</p>
+            {memory.attachments.length === 0 ? <p className="empty">No photo or video is attached.</p> : (
+              <div className="media-grid">
+                {memory.attachments.map((file) => (
+                  <figure key={file.id}>
+                    {file.kind === "video"
+                      ? <video src={`/v1/media/${file.id}/content`} controls />
+                      : <img src={`/v1/media/${file.id}/content`} alt={file.originalName} />}
+                    <a href={`/v1/media/${file.id}/content`} download={file.originalName}>Download {file.originalName}</a>
+                  </figure>
+                ))}
+              </div>
+            )}
           </div>
           {memory.status !== "released" ? (
             <div className="row">

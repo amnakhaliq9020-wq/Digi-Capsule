@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthFrame } from "@/components/AuthFrame";
 import { ApiError, api } from "@/lib/api";
 import { zonesWith } from "@/lib/time";
 
@@ -33,7 +34,7 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="hero card">
+    <AuthFrame>
       <h1>Create your account</h1>
       <p className="muted">Use an email you can open. This account is only for you.</p>
       <form onSubmit={submit}>
@@ -45,7 +46,7 @@ export default function SignupPage() {
         <input id="password" type="password" autoComplete="new-password" aria-describedby="password-help" value={form.password} onChange={(event) => set("password", event.target.value)} required />
         <p id="password-help" className="muted">At least 10 characters, with a letter and a number.</p>
         <label htmlFor="zone">Time zone</label>
-        <p id="zone-help" className="muted">Detected from this device. You can change it now or later in Time zone.</p>
+        <p id="zone-help" className="muted">Detected from this device. You can change it now or later in Settings.</p>
         <select id="zone" aria-describedby="zone-help" value={form.timeZone} onChange={(event) => set("timeZone", event.target.value)}>
           {zonesWith(form.timeZone).map((zone) => <option key={zone}>{zone}</option>)}
         </select>
@@ -53,6 +54,6 @@ export default function SignupPage() {
         <p><button type="submit">Create account</button></p>
       </form>
       <p className="muted">Already registered? <Link href="/login">Sign in</Link></p>
-    </main>
+    </AuthFrame>
   );
 }

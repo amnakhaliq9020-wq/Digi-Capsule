@@ -58,7 +58,7 @@ function DeliveriesBody() {
 
   return (
     <>
-      <h1>Scheduled deliveries</h1>
+      <h1>Scheduled messages</h1>
       <p className="muted">A saved date is not a sent message. The first list is every memory waiting for its date. A row in Sent appears after that time has passed and the worker has run once. Running the worker again does not add another row.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
 

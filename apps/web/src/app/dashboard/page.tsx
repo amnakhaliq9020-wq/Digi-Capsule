@@ -18,7 +18,7 @@ type Dashboard = {
 };
 
 type Memory = { id: string; title: string; status: string; deliveryMode: string };
-type Contact = { id: string; displayName: string; email: string | null; phone: string | null };
+type Contact = { id: string; displayName: string; email: string | null; phone: string | null; roles: string[] };
 
 function when(value: string | null, timeZone: string) {
   return value ? formatWhen(value, timeZone) : "Not yet";
@@ -48,24 +48,32 @@ function DashboardBody() {
     }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the dashboard.")).finally(() => setReady(true));
   }, []);
 
+  const trusted = contacts.filter((contact) => contact.roles?.includes("trusted_contact")).length;
+
   return (
     <>
-      <h1>Dashboard</h1>
-      <p className="muted">Saved for a date counts memories with a send date. Those memories are listed under Scheduled deliveries until they are sent. Check-in dates are a separate timer and do not send a memory.</p>
+      <h1>What would you like to do today?</h1>
+      <p className="muted">Your account holds one capsule. A memory stays private until you choose who receives it and when. A check-in does not send a memory.</p>
+      <div className="action-grid">
+        <Link className="action" href="/memories/new">Create a Memory</Link>
+        <Link className="action" href="/memories/new#delivery">Create a Future Message</Link>
+        <Link className="action quiet" href="/memories">View My Capsules</Link>
+        <Link className="action quiet" href="/contacts">Manage Trusted Contacts</Link>
+      </div>
       {error ? <p className="error" role="alert">{error}</p> : null}
       {data ? (
         <div className="grid">
           <article className="card stat"><span>Total memories</span><strong>{data.totalMemories}</strong></article>
-          <article className="card stat"><span>Drafts</span><strong>{data.drafts}</strong></article>
-          <article className="card stat"><span>Saved for a date</span><strong>{data.scheduled}</strong></article>
-          <article className="card stat"><span>If I am gone</span><strong>{data.ifIAmGone}</strong></article>
-          <article className="card stat"><span>Next send</span><strong>{when(data.nextScheduledDelivery, timeZone)}</strong></article>
-          <article className="card stat"><span>Last I'm Alive</span><strong>{when(data.lastCheckInAt, timeZone)}</strong></article>
-          <article className="card stat"><span>Next check-in due</span><strong>{when(data.nextCheckInDueAt, timeZone)}</strong></article>
-          <article className="card stat"><span>Warning status</span><strong>{data.warningStatus.replaceAll("_", " ")}</strong></article>
+          <article className="card stat"><span>Active capsules</span><strong>1</strong><p className="muted">One capsule holds every memory on this account.</p></article>
+          <article className="card stat"><span>Upcoming deliveries</span><strong>{data.scheduled}</strong><p className="muted">Next: {when(data.nextScheduledDelivery, timeZone)} ({timeZone})</p></article>
+          <article className="card stat"><span>Trusted contacts</span><strong>{trusted}</strong></article>
         </div>
       ) : <p className="loading">Loading…</p>}
-      <p className="actions"><Link className="button" href="/check-in">I'm Alive</Link></p>
+      <section className="section">
+        <h2>Check in</h2>
+        <p className="muted">Last I’m Alive: {data ? when(data.lastCheckInAt, timeZone) : "Loading…"}. Next check-in: {data ? when(data.nextCheckInDueAt, timeZone) : "Loading…"} ({timeZone}). Warning: {data ? data.warningStatus.replaceAll("_", " ") : "Loading…"}. This button does not send a memory.</p>
+        <p className="actions"><Link className="button" href="/check-in">I’m Alive</Link></p>
+      </section>
 
       <section className="section">
         <div className="section-head">

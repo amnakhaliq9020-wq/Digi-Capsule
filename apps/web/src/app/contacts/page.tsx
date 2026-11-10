@@ -110,9 +110,16 @@ export default function ContactsPage() {
         {fieldMessage("phone") ? <p className="error" role="alert">{fieldMessage("phone")}</p> : null}
         <label htmlFor="relationship">Relationship</label>
         <input id="relationship" value={form.relationship} onChange={(event) => setForm({ ...form, relationship: event.target.value })} />
-        {["recipient", "trusted_contact", "verifier"].map((role) => (
-          <label key={role} className="check"><input type="checkbox" checked={form.roles.includes(role)} onChange={() => toggle(role)} /> {role.replaceAll("_", " ")}</label>
-        ))}
+        <fieldset>
+          <legend>What this person can do</legend>
+          {([
+            ["recipient", "Can receive a memory"],
+            ["trusted_contact", "Trusted contact. Cannot read drafts"],
+            ["verifier", "Can help confirm you are reachable. Cannot read drafts"],
+          ] as const).map(([role, label]) => (
+            <label key={role} className="check"><input type="checkbox" checked={form.roles.includes(role)} onChange={() => toggle(role)} /> {label}</label>
+          ))}
+        </fieldset>
         {error ? <p className="error" role="alert">{error}</p> : null}
         <div className="row">
           <button type="submit">{editing ? "Save changes" : "Add contact"}</button>
@@ -125,7 +132,7 @@ export default function ContactsPage() {
         {contacts.map((contact) => (
           <article key={contact.id} className="item">
             <strong>{contact.displayName}</strong>
-            <p className="muted">{contact.email} · {contact.phone || "no phone"} · {contact.roles.map((role) => role.replaceAll("_", " ")).join(", ") || "no role"} · {contact.emailVerified ? "email verified" : "email not verified"}</p>
+            <p className="muted">{contact.email} · {contact.phone || "no phone"} · {contact.roles.map((role) => role === "trusted_contact" ? "trusted contact" : role === "verifier" ? "can help confirm you are reachable" : role === "recipient" ? "can receive a memory" : role).join(", ") || "no role"} · {contact.emailVerified ? "email verified" : "email not verified"}</p>
             <div className="row">
               <button className="secondary" onClick={() => { setEditing(contact.id); setError(""); setFields({}); setForm({ displayName: contact.displayName, email: contact.email, phone: contact.phone || "", relationship: contact.relationship || "", roles: contact.roles.length ? contact.roles : ["recipient"] }); }}>Edit</button>
               {!contact.emailVerified ? <button onClick={() => void verify(contact)}>Verify email</button> : null}

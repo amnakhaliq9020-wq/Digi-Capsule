@@ -89,8 +89,9 @@ export default function DevConsolePage() {
       <h1>Development test console</h1>
       <p className="callout">Developer test clock only. Scheduling, I'm Alive, and the automatic worker use real server time. This clock does not change those. Run worker here uses the simulated clock and only this account. It does not send real email or SMS. Review release flag: {flag ? "on for this non-production process" : "off"}.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
-      <p>Simulated clock: {now ? formatWhen(now) : "…"}</p>
-      <p>Server time: {serverTime ? formatWhen(serverTime) : "…"}</p>
+      <div className="card stack">
+      <p>Simulated clock: {now ? formatWhen(now) : "Loading…"}</p>
+      <p>Server time: {serverTime ? formatWhen(serverTime) : "Loading…"}</p>
       <p className="muted">The simulated clock stays still until you move it. Use it only to rehearse warnings and deliveries. A normal memory date is checked against the server time above.</p>
       <div className="row">
         <button className="secondary" onClick={() => void jumpToDue()}>Jump to check-in due</button>
@@ -102,6 +103,8 @@ export default function DevConsolePage() {
       <label htmlFor="when">Exact simulated time</label>
       <input id="when" type="datetime-local" onChange={(event) => void setExact(event.target.value)} />
       {message ? <p className="banner">{message}</p> : null}
+      </div>
+      <section className="card stack">
       <h2>Test-only release review</h2>
       <p className="muted">Opening a review here is a fixture. One statement is not enough. I'm Alive stops an open review.</p>
       <label htmlFor="verifier">Verified verifier</label>
@@ -114,6 +117,7 @@ export default function DevConsolePage() {
         <button className="secondary" onClick={() => void api(`/v1/dev/verification/cases/${caseId}/attestations`, { method: "POST", body: JSON.stringify({ personId: verifier, position: "believe_deceased" }) }).catch((err) => showError(err, "Could not record that statement."))}>Record statement</button>
       </div>
       {caseId ? <p className="muted">Review id {caseId}. Advance the clock past the 14-day wait, run the worker, then past the 72-hour wait, and run it again.</p> : null}
+      </section>
       <h2>Test inbox</h2>
       <div className="list">
         {inbox.map((message) => (

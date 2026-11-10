@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
-import { formatWhen, zonesWith } from "@/lib/time";
+import { describeLocalChoice, formatWhen, zonesWith } from "@/lib/time";
 
 type Contact = { id: string; displayName: string; email: string; emailVerified: boolean; roles: string[] };
 type Attachment = { id: string; mimeType: string; originalName: string; kind: "photo" | "video" };
@@ -100,13 +100,22 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const chosen = contacts.filter((contact) => selected.includes(contact.id));
 
   return (
+    <div className="stack">
+      <ol className="steps">
+        <li>1. Write the memory</li>
+        <li>2. Add a photo or video</li>
+        <li>3. Choose people and a date</li>
+      </ol>
+      <p className="muted">Save the draft first. It stays private. Then choose who may receive it and when. Nothing is sent by pressing Save draft.</p>
     <div className="split">
       <form className="card stack" onSubmit={(event) => { event.preventDefault(); void saveDraft().catch((err) => setError(err instanceof ApiError ? err.message : "Could not save.")); }}>
         <div>
           <label htmlFor="title">Title</label>
-          <input id="title" value={title} onChange={(event) => setTitle(event.target.value)} required />
+          <p id="title-help" className="muted">A short name you will recognize. Recipients do not see it until the memory is released.</p>
+          <input id="title" aria-describedby="title-help" value={title} onChange={(event) => setTitle(event.target.value)} required />
           <label htmlFor="letter">Letter</label>
-          <textarea id="letter" value={body} onChange={(event) => setBody(event.target.value)} placeholder="Write what you want them to read." />
+          <p id="letter-help" className="muted">Write what you want them to read. You can leave this blank and add a photo or video instead.</p>
+          <textarea id="letter" aria-describedby="letter-help" value={body} onChange={(event) => setBody(event.target.value)} />
         </div>
         <div className="row">
           <button type="submit">Save draft</button>
@@ -128,8 +137,9 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         ) : <p className="empty">Save the draft before attaching a file.</p>}
         {error ? <p className="error" role="alert">{error}</p> : null}
       </form>
-      <aside className="card stack">
+      <aside className="card stack" id="delivery">
         <h2>Who receives this</h2>
+        <p className="muted">Only people marked as recipients are listed here. A trusted contact cannot read this draft.</p>
         {contacts.filter((contact) => contact.roles.includes("recipient")).map((contact) => (
           <label key={contact.id} className="check">
             <input type="checkbox" checked={selected.includes(contact.id)} onChange={() => setSelected((current) => current.includes(contact.id) ? current.filter((value) => value !== contact.id) : [...current, contact.id])} />
@@ -145,10 +155,12 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
             <div className="callout">
               <p>Server time: {serverTime ? formatWhen(serverTime, timeZone) : "Loading…" } ({timeZone}). A delivery has to be later than this. The date and time below are in the time zone you choose.</p>
             </div>
+            <p className="banner">{describeLocalChoice(localDate, localTime, timeZone)}</p>
             <label htmlFor="date">Date</label>
             <input id="date" type="date" value={localDate} onChange={(event) => setLocalDate(event.target.value)} />
             <label htmlFor="time">Time</label>
-            <input id="time" type="time" value={localTime} onChange={(event) => setLocalTime(event.target.value)} />
+            <p id="time-help" className="muted">The clock uses am and pm. The sentence above repeats the time so the numbers are not the only form.</p>
+            <input id="time" type="time" aria-describedby="time-help" value={localTime} onChange={(event) => setLocalTime(event.target.value)} />
             <label htmlFor="zone">Time zone</label>
             <select id="zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>{zonesWith(timeZone).map((zone) => <option key={zone}>{zone}</option>)}</select>
           </>
@@ -157,12 +169,13 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
           <strong>Preview</strong>
           <p className="muted">
             {mode === "on_date"
-              ? `On ${localDate || "the chosen date"} at ${localTime} (${timeZone}), ${chosen.map((person) => person.displayName).join(", ") || "the selected people"} receive this letter and its files in the local test inbox. A real email provider is not used.`
+              ? `${describeLocalChoice(localDate, localTime, timeZone)} ${chosen.map((person) => person.displayName).join(", ") || "The selected people"} receive this letter and its files in the local test inbox. A real email provider is not used.`
               : `${chosen.map((person) => person.displayName).join(", ") || "The selected people"} receive this memory only after the test-console missed-check-in sequence. Warnings never include the letter.`}
           </p>
         </div>
         <button type="button" onClick={() => void schedule()}>Save delivery</button>
       </aside>
+    </div>
     </div>
   );
 }

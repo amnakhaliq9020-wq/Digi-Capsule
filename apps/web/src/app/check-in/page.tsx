@@ -50,8 +50,8 @@ function CheckInBody() {
       {data ? (
         <div className="grid">
           <article className="card stat"><span>Last check-in</span><strong>{data.lastCheckInAt ? formatWhen(data.lastCheckInAt, timeZone) : "None yet"}</strong></article>
-          <article className="card stat"><span>Next due</span><strong>{data.nextCheckInDueAt ? `${formatWhen(data.nextCheckInDueAt, timeZone)} (${timeZone})` : "—"}</strong></article>
-          <article className="card stat"><span>Status</span><strong>{data.status}{data.daysOverdue ? ` · ${data.daysOverdue} days` : ""}</strong></article>
+          <article className="card stat"><span>Next due</span><strong>{data.nextCheckInDueAt ? `${formatWhen(data.nextCheckInDueAt, timeZone)} (${timeZone})` : "Not yet"}</strong></article>
+          <article className="card stat"><span>Status</span><strong>{data.status === "overdue" ? "Check-in is overdue" : "Check-in is on time"}{data.daysOverdue ? `. ${data.daysOverdue} days past due` : ""}</strong></article>
           <article className="card stat"><span>Warning stage</span><strong>{data.warningStage.replaceAll("_", " ")}</strong></article>
         </div>
       ) : <p className="loading">Loading…</p>}

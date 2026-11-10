@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AuthFrame } from "@/components/AuthFrame";
 import { ApiError, api } from "@/lib/api";
 
 export default function LoginPage() {
@@ -23,7 +24,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="hero card">
+    <AuthFrame>
       <h1>Sign in</h1>
       <form onSubmit={submit}>
         <label htmlFor="email">Email</label>
@@ -34,6 +35,6 @@ export default function LoginPage() {
         <p><button type="submit">Sign in</button></p>
       </form>
       <p className="muted">New here? <Link href="/signup">Create an account</Link></p>
-    </main>
+    </AuthFrame>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deliveryModeLabel, formatWhen, memoryStatusLabel, testClockGuidance, waitingDeliveryNote } from "./time";
+import { deliveryModeLabel, describeLocalChoice, formatWhen, memoryStatusLabel, testClockGuidance, waitingDeliveryNote } from "./time";
 
 describe("formatWhen", () => {
   it("uses a 12-hour clock so midnight matches the computer clock", () => {
@@ -37,6 +37,14 @@ describe("waitingDeliveryNote", () => {
     expect(waitingDeliveryNote(true, true)).toContain("server clock");
     expect(waitingDeliveryNote(true, true)).not.toContain("test clock");
     expect(waitingDeliveryNote(true, false)).toContain("next worker run");
+  });
+});
+
+describe("describeLocalChoice", () => {
+  it("writes the month name and an explicit am or pm without moving the clock", () => {
+    expect(describeLocalChoice("2026-11-07", "00:05", "Asia/Karachi")).toBe("7 November 2026 at 12:05 am, in Asia/Karachi.");
+    expect(describeLocalChoice("2027-02-16", "15:00", "Asia/Karachi")).toBe("16 February 2027 at 3:00 pm, in Asia/Karachi.");
+    expect(describeLocalChoice("", "09:00", "UTC")).toContain("12-hour clock");
   });
 });
 

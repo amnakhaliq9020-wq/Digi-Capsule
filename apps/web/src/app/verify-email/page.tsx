@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthFrame } from "@/components/AuthFrame";
 import { ApiError, api } from "@/lib/api";
 
 export default function VerifyEmailPage() {
@@ -29,7 +30,7 @@ export default function VerifyEmailPage() {
   }
 
   return (
-    <main className="hero card">
+    <AuthFrame>
       <h1>Confirm your email</h1>
       <p className="muted">In local development the code is shown here and in the test console. A production email provider would send it instead. Confirming your email does not send memories.</p>
       <form onSubmit={submit}>
@@ -39,6 +40,6 @@ export default function VerifyEmailPage() {
         {done ? <p className="banner">Email confirmed.</p> : null}
         <p><button type="submit">Confirm email</button></p>
       </form>
-    </main>
+    </AuthFrame>
   );
 }

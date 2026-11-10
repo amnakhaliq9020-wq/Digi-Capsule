@@ -9,6 +9,20 @@ const viewports = [
   { width: 1920, height: 1080, name: "1920" },
 ];
 
+async function saveShot(page: Page, file: string) {
+  let last: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await page.screenshot({ path: file, fullPage: true });
+      return;
+    } catch (error) {
+      last = error;
+      await page.waitForTimeout(400);
+    }
+  }
+  throw last;
+}
+
 async function expectNoOverflow(page: Page) {
   const extra = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(extra).toBeLessThanOrEqual(1);
@@ -27,7 +41,7 @@ test("public pages stay accessible at every requested viewport", async ({ page }
       await page.goto(path);
       await expectNoOverflow(page);
       await expectAccessible(page);
-      await page.screenshot({ path: `a11y-screenshots/${path === "/" ? "landing" : path.slice(1)}-${viewport.name}.png`, fullPage: true });
+      await saveShot(page, `a11y-screenshots/${path === "/" ? "landing" : path.slice(1)}-${viewport.name}.png`);
     }
   }
 });
@@ -42,6 +56,15 @@ test("keyboard reaches the account actions and the login fields", async ({ page 
   await page.keyboard.press("Tab");
   await expect(header.getByRole("link", { name: "Get Started" })).toBeFocused();
   await page.goto("/login");
+  const loginHeader = page.getByRole("banner");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(loginHeader.getByRole("link", { name: "Digi Capsule" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(loginHeader.getByRole("link", { name: "Sign in" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(loginHeader.getByRole("link", { name: "Create an account" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("Email")).toBeFocused();
   await page.getByLabel("Email").fill("not-a-person@example.test");
@@ -70,7 +93,22 @@ test("signed-in screens stay accessible without sending a memory", async ({ page
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What would you like to do today?" })).toBeVisible();
+  await page.goto("/dashboard");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await page.getByRole("link", { name: "Create a Memory" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/memories\/new$/);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "What would you like to do today?" })).toBeVisible();
+  await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
+  await expectNoOverflow(page);
+  await expect(page.getByRole("link", { name: "Create a Memory" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Create a Future Message" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View My Capsules" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage Trusted Contacts" })).toBeVisible();
+  await page.evaluate(() => { document.documentElement.style.zoom = "1"; });
 
   const paths = [
     ["dashboard", "/dashboard"],
@@ -80,15 +118,16 @@ test("signed-in screens stay accessible without sending a memory", async ({ page
     ["check-in", "/check-in"],
     ["warnings", "/warnings"],
     ["deliveries", "/deliveries"],
+    ["account", "/account"],
     ["dev", "/dev"],
   ] as const;
-  for (const viewport of [viewports[0], viewports[3], viewports[4]]) {
+  for (const viewport of [viewports[0], viewports[2], viewports[3], viewports[4]]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     for (const [name, path] of paths) {
       await page.goto(path);
       await expectNoOverflow(page);
       if (viewport.name === "1366") await expectAccessible(page);
-      await page.screenshot({ path: `a11y-screenshots/${name}-${viewport.name}.png`, fullPage: true });
+      await saveShot(page, `a11y-screenshots/${name}-${viewport.name}.png`);
     }
   }
 });

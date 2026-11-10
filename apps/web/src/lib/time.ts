@@ -53,6 +53,20 @@ export function memoryStatusLabel(status: string) {
   return status.replaceAll("_", " ");
 }
 
+const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Show a chosen calendar date with the month name and an explicit am/pm, without shifting the clock. */
+export function describeLocalChoice(date: string, time: string, timeZone: string) {
+  if (!date) return `Choose a date. Times use a 12-hour clock in ${timeZone}.`;
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour = 0, minute = 0] = time.split(":").map(Number);
+  if (!year || !month || !day || month < 1 || month > 12) return `Choose a date. Times use a 12-hour clock in ${timeZone}.`;
+  const hour12 = ((hour + 11) % 12) + 1;
+  const suffix = hour < 12 ? "am" : "pm";
+  const minutes = String(minute).padStart(2, "0");
+  return `${day} ${months[month - 1]} ${year} at ${hour12}:${minutes} ${suffix}, in ${timeZone}.`;
+}
+
 export function deliveryModeLabel(mode: string) {
   if (mode === "on_date") return "On a date";
   if (mode === "if_i_am_gone") return "If I am gone";

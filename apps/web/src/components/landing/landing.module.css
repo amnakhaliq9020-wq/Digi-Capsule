@@ -1,19 +1,19 @@
 .page {
-  --ink: #14283b;
-  --muted: #3e5166;
-  --navy: #101c2d;
-  --plum: #3c315f;
-  --gold: #6b3d12;
-  --gold-soft: #f3e6d0;
-  --paper: #fffdf8;
-  --line: #d5cbbd;
-  --teal: #1c4e4b;
-  --teal-fill: #2f6d69;
+  --ink: #172b3a;
+  --muted: #52616b;
+  --navy: #173b57;
+  --plum: #173b57;
+  --gold: #0f5c61;
+  --gold-soft: #e8f1f7;
+  --paper: #ffffff;
+  --line: #4e6270;
+  --teal: #0f5c61;
+  --teal-fill: #167d83;
   min-height: 100vh;
   background:
-    radial-gradient(900px 420px at 100% -10%, rgba(92, 77, 138, 0.16), transparent 60%),
-    radial-gradient(700px 380px at -10% 12%, rgba(196, 140, 90, 0.14), transparent 55%),
-    linear-gradient(180deg, #f7f4ef 0%, #f4f0f8 38%, #f7f5f1 100%);
+    radial-gradient(900px 420px at 100% -10%, rgba(22, 125, 131, 0.12), transparent 60%),
+    radial-gradient(700px 380px at -10% 12%, rgba(23, 59, 87, 0.08), transparent 55%),
+    linear-gradient(180deg, #f8fafc 0%, #e8f1f7 42%, #f8fafc 100%);
   color: var(--ink);
 }
 
