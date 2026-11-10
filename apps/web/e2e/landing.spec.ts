@@ -17,8 +17,8 @@ async function expectNoOverflow(page: Page) {
 test("landing calls to action open the existing account routes", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Your Memories. Your Moments. Your Legacy." })).toBeVisible();
-  await page.getByRole("banner").getByRole("link", { name: "Get Started" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Messages that wait for the right moment." })).toBeVisible();
+  await page.getByRole("banner").getByRole("link", { name: "Get early access" }).click();
   await expect(page).toHaveURL(/\/signup$/);
   await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
 
@@ -28,12 +28,10 @@ test("landing calls to action open the existing account routes", async ({ page }
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 
   await page.goto("/");
-  await page.getByRole("link", { name: "Explore Features" }).click();
-  await expect(page).toHaveURL(/#features$/);
-  await expect(page.getByRole("heading", { name: "What you can do in Digi Capsule today." })).toBeVisible();
-
-  await page.getByRole("link", { name: "Create Your First Capsule" }).click();
-  await expect(page).toHaveURL(/\/signup$/);
+  await page.getByLabel("Email").fill("ada@example.test");
+  await page.getByRole("button", { name: "Join waitlist" }).click();
+  await expect(page).toHaveURL(/\/signup\?email=ada%40example\.test$/);
+  await expect(page.getByLabel("Email")).toHaveValue("ada@example.test");
 });
 
 test("footer information pages are real routes", async ({ page }) => {
@@ -56,10 +54,7 @@ test("footer information pages are real routes", async ({ page }) => {
 test("mobile menu reaches a section without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
-  await expect(page.getByRole("banner").getByRole("link", { name: "Vision" })).toBeHidden();
-  await page.getByRole("button", { name: "Menu" }).click();
-  await page.getByRole("banner").getByRole("link", { name: "Vision" }).click();
-  await expect(page).toHaveURL(/#vision$/);
+  await page.goto("/#vision");
   await expect(page.getByRole("heading", { name: "Preserve today’s words for a day that has not arrived." })).toBeVisible();
   await expectNoOverflow(page);
 });
@@ -79,7 +74,7 @@ test("public marketing pages fit phone, tablet, and desktop widths", async ({ pa
     for (const path of ["/", "/privacy", "/terms", "/contact"]) {
       await page.goto(path);
       await expectNoOverflow(page);
-      const heroButton = page.getByRole("link", { name: viewport.width < 1080 ? "Get Started" : "Create Your First Capsule" }).first();
+      const heroButton = page.getByRole("link", { name: "Get early access" }).first();
       if (path === "/") await expect(heroButton).toBeVisible();
     }
   }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { SectionMenu } from "./SectionMenu";
-import { footerExplore, footerInfo, routes } from "./site";
+import { footerInfo, routes } from "./site";
 import styles from "./landing.module.css";
 
 export function MarketingChrome({ children }: { children: ReactNode }) {
@@ -14,15 +13,9 @@ export function MarketingChrome({ children }: { children: ReactNode }) {
             <img src="/logo.png" alt="" width={40} height={40} />
             Digi Capsule
           </Link>
-          <nav className={styles.desktopNav} aria-label="Primary">
-            {footerExplore.map((item) => (
-              <Link key={item.href} href={item.href}>{item.label}</Link>
-            ))}
-          </nav>
-          <SectionMenu />
           <div className={styles.actions}>
             <Link className={styles.signIn} href={routes.signIn}>Sign in</Link>
-            <Link className={styles.primary} href={routes.start}>Get Started</Link>
+            <Link className={styles.early} href={routes.start}>Get early access</Link>
           </div>
         </div>
       </header>
@@ -30,19 +23,8 @@ export function MarketingChrome({ children }: { children: ReactNode }) {
         {children}
       </main>
       <footer className={styles.footer}>
-        <div className={`${styles.wrap} ${styles.footerGrid}`}>
-          <div>
-            <p className={styles.footerTitle}>Digi Capsule</p>
-            <p>Your memories. Your moments. Your legacy.</p>
-            <p className={styles.legal}>A private memory application. It is not a will, and it does not decide that someone has died.</p>
-          </div>
-          <nav aria-label="Footer">
-            <ul>
-              {footerExplore.map((item) => (
-                <li key={item.href}><Link href={item.href}>{item.label}</Link></li>
-              ))}
-            </ul>
-          </nav>
+        <div className={`${styles.wrap} ${styles.footerRow}`}>
+          <p>© 2026 Digi Capsule</p>
           <nav aria-label="Information">
             <ul>
               {footerInfo.map((item) => (

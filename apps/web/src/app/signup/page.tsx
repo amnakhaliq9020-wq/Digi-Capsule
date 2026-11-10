@@ -14,7 +14,8 @@ export default function SignupPage() {
 
   useEffect(() => {
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (detected) set("timeZone", detected);
+    const email = new URLSearchParams(window.location.search).get("email");
+    setForm((current) => ({ ...current, timeZone: detected || current.timeZone, email: email || current.email }));
   }, []);
 
   function set(key: string, value: string) {

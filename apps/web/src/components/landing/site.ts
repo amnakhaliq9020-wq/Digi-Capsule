@@ -35,11 +35,10 @@ export const footerInfo = [
 
 export const hero = {
   kicker: "Private memories, held for a moment you choose",
-  lines: ["Your Memories.", "Your Moments.", "Your Legacy."],
-  lede:
-    "Keep a letter, a photograph, or a short video for someone you choose. Digi Capsule holds it privately until the date you set, so words written today can wait for a birthday, an anniversary, or another moment that matters.",
-  primary: "Get Started",
-  secondary: "Explore Features",
+  lines: ["Messages that wait for", "the right moment."],
+  lede: "Record, seal, and open a message when it matters.",
+  primary: "Get early access",
+  secondary: "Join waitlist",
 } as const;
 
 export const heroFacts = [

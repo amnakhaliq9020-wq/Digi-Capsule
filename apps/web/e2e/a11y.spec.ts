@@ -54,7 +54,7 @@ test("keyboard reaches the account actions and the login fields", async ({ page 
   const header = page.getByRole("banner");
   await header.getByRole("link", { name: "Sign in" }).focus();
   await page.keyboard.press("Tab");
-  await expect(header.getByRole("link", { name: "Get Started" })).toBeFocused();
+  await expect(header.getByRole("link", { name: "Get early access" })).toBeFocused();
   await page.goto("/login");
   const loginHeader = page.getByRole("banner");
   await page.keyboard.press("Tab");

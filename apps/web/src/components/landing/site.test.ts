@@ -21,8 +21,8 @@ describe("landing navigation", () => {
   it("sends account actions to the existing auth routes", () => {
     expect(routes.start).toBe("/signup");
     expect(routes.signIn).toBe("/login");
-    expect(hero.primary).toBe("Get Started");
-    expect(hero.secondary).toBe("Explore Features");
+    expect(hero.primary).toBe("Get early access");
+    expect(hero.secondary).toBe("Join waitlist");
     expect(closing.action).toBe("Create Your First Capsule");
     expect(closing.title).toBe("Some Moments Deserve to Last Forever.");
   });
@@ -34,7 +34,7 @@ describe("landing navigation", () => {
   });
 
   it("keeps the requested story sections", () => {
-    expect(hero.lines.join(" ")).toBe("Your Memories. Your Moments. Your Legacy.");
+    expect(hero.lines.join(" ")).toBe("Messages that wait for the right moment.");
     expect(steps.map((step) => step.title)).toEqual([
       "Create your account.",
       "Save meaningful memories and messages.",
