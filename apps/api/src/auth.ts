@@ -10,6 +10,14 @@ export type AuthUser = {
   timeZone: string;
 };
 
+export function isAdministrator(email: string): boolean {
+  const allowed = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(email.toLowerCase());
+}
+
 export async function requireUser(request: FastifyRequest): Promise<AuthUser> {
   const token = request.cookies.digi_session;
   if (!token) throw new AppError(401, "UNAUTHORIZED", "Sign in to continue.");

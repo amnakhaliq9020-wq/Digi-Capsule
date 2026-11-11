@@ -2,67 +2,40 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  applications,
-  closing,
-  deliveryNote,
-  features,
-  footerInfo,
-  future,
-  hero,
-  primaryNav,
-  routes,
-  securityControls,
-  securityLimits,
-  steps,
-} from "./site";
+import { closing, footerInfo, hero, privacy, routes, timeMeaning, vision } from "./site";
 
-describe("landing navigation", () => {
-  it("sends account actions to the existing auth routes", () => {
-    expect(routes.start).toBe("/signup");
+describe("landing story", () => {
+  it("introduces the product with the brand slogan", () => {
     expect(routes.signIn).toBe("/login");
-    expect(hero.primary).toBe("Get early access");
-    expect(hero.secondary).toBe("Join waitlist");
-    expect(closing.action).toBe("Create Your First Capsule");
-    expect(closing.title).toBe("Some Moments Deserve to Last Forever.");
+    expect(routes.start).toBe("/signup");
+    expect(hero.slogan).toBe("Memories are forever. Now their moments can be too.");
+    expect(hero.support).toBe("Preserve what matters today. Share it with the people who matter tomorrow.");
+    expect(hero.primary).toBe("Get Early Access");
+    expect(hero.secondary).toBe("Discover Our Purpose");
+    expect(closing.title).toBe("Some messages are worth waiting for.");
+    expect(closing.action).toBe("Join the Early Access List");
   });
 
-  it("links the footer to about, features, privacy, terms, and contact", () => {
-    expect(footerInfo.map((item) => item.label)).toEqual(["About", "Features", "Privacy Policy", "Terms", "Contact"]);
-    expect(footerInfo.map((item) => item.href)).toEqual(["/#about", "/#features", "/privacy", "/terms", "/contact"]);
-    expect(primaryNav.map((item) => item.href).every((href) => href.startsWith("/#"))).toBe(true);
+  it("keeps the footer on real information pages", () => {
+    expect(footerInfo.map((item) => item.label)).toEqual(["Privacy Policy", "Terms of Service", "Contact"]);
+    expect(footerInfo.map((item) => item.href)).toEqual(["/privacy", "/terms", "/contact"]);
   });
 
-  it("keeps the requested story sections", () => {
-    expect(hero.lines.join(" ")).toBe("Messages that wait for the right moment.");
-    expect(steps.map((step) => step.title)).toEqual([
-      "Create your account.",
-      "Save meaningful memories and messages.",
-      "Choose trusted contacts and delivery conditions.",
-      "Let your memories reach their recipients at the right time.",
-    ]);
-    expect(applications).toHaveLength(7);
-    expect(features.map((feature) => feature.title)).toEqual([
-      "Digital time capsules",
-      "Scheduled delivery",
-      "Trusted contacts",
-      "Media storage",
-      "Special occasion releases",
-      "Liveness confirmation",
-    ]);
+  it("treats future scenes as illustrations", () => {
+    expect(timeMeaning.note.toLowerCase()).toContain("not a description of a particular delivery feature");
+    expect(vision.statement).toContain("should not be limited by time");
   });
 
-  it("describes only the security that exists and marks the avatar as planned", () => {
-    const claims = [deliveryNote, securityLimits, ...securityControls.map((item) => item.body)].join(" ").toLowerCase();
+  it("describes only the privacy protections that exist", () => {
+    const claims = privacy.paragraphs.join(" ").toLowerCase();
     expect(claims).toContain("argon2id");
     expect(claims).toContain("aes-256-gcm");
     expect(claims).toContain("httponly");
-    expect(claims).toContain("not released in production");
-    expect(claims).not.toContain("soc 2");
-    expect(claims).not.toContain("bank-grade");
+    expect(claims).toContain("does not send memories through an outside email");
+    expect(claims).toContain("does not promise that a message will be delivered");
+    expect(claims).not.toContain("military-grade");
+    expect(claims).not.toContain("guaranteed");
     expect(claims).not.toContain("end-to-end");
-    expect(future.status).toBe("Planned");
-    expect(future.boundary.toLowerCase()).toContain("not available today");
   });
 });
 

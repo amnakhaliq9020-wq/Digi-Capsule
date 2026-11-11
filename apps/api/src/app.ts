@@ -11,12 +11,14 @@ import { serverNow, usesSimulationClock } from "./lib/clock";
 import { AppError } from "./errors";
 import { createStorage } from "./lib/storage";
 import { authRoutes } from "./routes/auth";
+import { waitlistRoutes } from "./routes/waitlist";
 import { checkInRoutes } from "./routes/checkin";
 import { contactRoutes } from "./routes/contacts";
 import { dashboardRoutes } from "./routes/dashboard";
 import { devRoutes } from "./routes/dev";
 import { mediaRoutes } from "./routes/media";
 import { memoryRoutes } from "./routes/memories";
+import { settingsRoutes } from "./routes/settings";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -29,7 +31,16 @@ export async function buildApp() {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL || "warn",
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.body.password", "req.body.body", "req.body.token", "req.body.code"],
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "req.body.password",
+        "req.body.currentPassword",
+        "req.body.newPassword",
+        "req.body.body",
+        "req.body.token",
+        "req.body.code",
+      ],
     },
   });
   const prisma = new PrismaClient();
@@ -97,11 +108,13 @@ export async function buildApp() {
       };
     });
     await api.register(authRoutes);
+    await api.register(waitlistRoutes);
     await api.register(memoryRoutes);
     await api.register(mediaRoutes);
     await api.register(contactRoutes);
     await api.register(checkInRoutes);
     await api.register(dashboardRoutes);
+    await api.register(settingsRoutes);
     await api.register(devRoutes);
   }, { prefix: "/v1" });
 

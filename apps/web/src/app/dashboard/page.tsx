@@ -14,10 +14,16 @@ type Dashboard = {
   nextScheduledDelivery: string | null;
   lastCheckInAt: string | null;
   nextCheckInDueAt: string | null;
+  accountCheckStatus: string;
+  escalationStatus: string;
+  confirmationRequestedAt: string | null;
+  confirmationDeadline: string | null;
+  pausedUntil: string | null;
   warningStatus: string;
 };
 
 type Memory = { id: string; title: string; status: string; deliveryMode: string };
+type Received = { id: string; title: string; body: string };
 type Contact = { id: string; displayName: string; email: string | null; phone: string | null; roles: string[] };
 
 function when(value: string | null, timeZone: string) {
@@ -32,8 +38,10 @@ function DashboardBody() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [received, setReceived] = useState<Received[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [checkMessage, setCheckMessage] = useState("");
   const timeZone = useTimeZone();
 
   useEffect(() => {
@@ -41,14 +49,27 @@ function DashboardBody() {
       api<Dashboard>("/v1/dashboard"),
       api<{ memories: Memory[] }>("/v1/memories"),
       api<{ contacts: Contact[] }>("/v1/contacts"),
-    ]).then(([summary, memoryList, contactList]) => {
+      api<{ memories: Received[] }>("/v1/received"),
+    ]).then(([summary, memoryList, contactList, receivedList]) => {
       setData(summary);
       setMemories(memoryList.memories);
       setContacts(contactList.contacts);
+      setReceived(receivedList.memories);
     }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the dashboard.")).finally(() => setReady(true));
   }, []);
 
   const trusted = contacts.filter((contact) => contact.roles?.includes("trusted_contact")).length;
+
+  async function alive() {
+    setError("");
+    try {
+      const result = await api<{ message: string }>("/v1/check-in", { method: "POST" });
+      setCheckMessage(result.message);
+      setData(await api<Dashboard>("/v1/dashboard"));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record the check-in.");
+    }
+  }
 
   return (
     <>
@@ -70,9 +91,13 @@ function DashboardBody() {
         </div>
       ) : <p className="loading">Loading…</p>}
       <section className="section">
-        <h2>Check in</h2>
-        <p className="muted">Last I’m Alive: {data ? when(data.lastCheckInAt, timeZone) : "Loading…"}. Next check-in: {data ? when(data.nextCheckInDueAt, timeZone) : "Loading…"} ({timeZone}). Warning: {data ? data.warningStatus.replaceAll("_", " ") : "Loading…"}. This button does not send a memory.</p>
-        <p className="actions"><Link className="button" href="/check-in">I’m Alive</Link></p>
+        <h2>Account activity</h2>
+        <p className="muted">Last check-in: {data ? when(data.lastCheckInAt, timeZone) : "Loading…"}. Next check-in: {data ? when(data.nextCheckInDueAt, timeZone) : "Loading…"} ({timeZone}). Status: {data ? data.accountCheckStatus.replaceAll("_", " ") : "Loading…"}. {data?.confirmationDeadline ? `Confirmation deadline: ${when(data.confirmationDeadline, timeZone)} (${timeZone}).` : "No confirmation window is open."} {data?.escalationStatus && data.escalationStatus !== "none" ? `Escalation: ${data.escalationStatus.replaceAll("_", " ")}.` : ""} A missed check-in is not a finding of death, and this button does not send a memory.</p>
+        <p className="actions">
+          <button className="alive" onClick={() => void alive()}>I'm Active</button>
+          <Link className="button secondary" href="/check-in">Check-in details</Link>
+        </p>
+        {checkMessage ? <p className="banner">{checkMessage}</p> : null}
       </section>
 
       <section className="section">
@@ -86,6 +111,19 @@ function DashboardBody() {
             <Link key={memory.id} className="item" href={`/memories/${memory.id}`}>
               <strong>{memory.title}</strong>
               <div className="row"><span className="pill">{memoryStatusLabel(memory.status)}</span><span className="pill">{deliveryModeLabel(memory.deliveryMode)}</span></div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="section">
+        <h2>Shared with you</h2>
+        <div className="list">
+          {!ready ? <p className="loading">Loading…</p> : received.length === 0 ? <p className="empty">Nothing has been released to this account.</p> : null}
+          {received.map((memory) => (
+            <Link key={memory.id} className="item" href={`/memories/${memory.id}`}>
+              <strong>{memory.title}</strong>
+              <p className="muted">{memory.body || "This memory has no letter."}</p>
             </Link>
           ))}
         </div>

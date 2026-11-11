@@ -6,6 +6,7 @@ import { AppError, fromZod } from "../errors";
 import { audit } from "../lib/audit";
 import { randomToken, sha256 } from "../lib/crypto";
 import { deliverEmail } from "../lib/notify";
+import { cancelFutureDeliveriesForPerson, userIdForEmail } from "../services/recipients";
 
 const roleSchema = z.enum(["recipient", "trusted_contact", "verifier"]);
 
@@ -37,6 +38,10 @@ function present(person: {
   };
 }
 
+function assertContactId(id: string) {
+  if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Contact not found.");
+}
+
 export async function contactRoutes(app: FastifyInstance) {
   app.get("/contacts", async (request) => {
     const user = await requireUser(request);
@@ -63,9 +68,11 @@ export async function contactRoutes(app: FastifyInstance) {
     const email = parsed.data.email.toLowerCase();
     const duplicate = await app.prisma.person.findFirst({ where: { ownerUserId: user.id, email } });
     if (duplicate) throw new AppError(409, "CONTACT_EXISTS", "You already have a contact with this email.");
+    const linkedUserId = await userIdForEmail(app.prisma, email);
     const person = await app.prisma.person.create({
       data: {
         ownerUserId: user.id,
+        linkedUserId,
         displayName: parsed.data.displayName,
         email,
         phone: parsed.data.phone,
@@ -81,6 +88,7 @@ export async function contactRoutes(app: FastifyInstance) {
   app.patch("/contacts/:id", async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
+    assertContactId(id);
     const existing = await app.prisma.person.findFirst({ where: { id, ownerUserId: user.id }, include: { roles: true } });
     if (!existing) throw new AppError(404, "NOT_FOUND", "Contact not found.");
     const parsed = z
@@ -99,14 +107,20 @@ export async function contactRoutes(app: FastifyInstance) {
       if (duplicate) throw new AppError(409, "CONTACT_EXISTS", "You already have a contact with this email.");
     }
     const person = await app.prisma.$transaction(async (tx) => {
+      const emailChanged = Boolean(email && email !== existing.email);
+      const hadRecipient = existing.roles.some((entry) => entry.role === "recipient" && !entry.revokedAt);
+      const keepsRecipient = parsed.data.roles ? parsed.data.roles.includes("recipient") : hadRecipient;
       if (parsed.data.roles) {
         await tx.contactRole.updateMany({ where: { personId: id, revokedAt: null }, data: { revokedAt: new Date() } });
         for (const role of parsed.data.roles) {
-          const verified = email && email !== existing.email ? null : existing.roles.find((entry) => entry.role === role && !entry.revokedAt)?.channelVerifiedAt ?? null;
+          const verified = emailChanged ? null : existing.roles.find((entry) => entry.role === role && !entry.revokedAt)?.channelVerifiedAt ?? null;
           await tx.contactRole.create({ data: { personId: id, role, channelVerifiedAt: verified } });
         }
-      } else if (email && email !== existing.email) {
+      } else if (emailChanged) {
         await tx.contactRole.updateMany({ where: { personId: id, revokedAt: null }, data: { channelVerifiedAt: null } });
+      }
+      if (hadRecipient && !keepsRecipient) {
+        await cancelFutureDeliveriesForPerson(tx, id, new Date());
       }
       return tx.person.update({
         where: { id },
@@ -115,6 +129,7 @@ export async function contactRoutes(app: FastifyInstance) {
           email,
           phone: parsed.data.phone,
           relationship: parsed.data.relationship,
+          ...(emailChanged && email ? { linkedUserId: await userIdForEmail(tx, email) } : {}),
         },
         include: { roles: true },
       });
@@ -125,20 +140,29 @@ export async function contactRoutes(app: FastifyInstance) {
   app.delete("/contacts/:id", async (request, reply) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
+    assertContactId(id);
     const existing = await app.prisma.person.findFirst({ where: { id, ownerUserId: user.id } });
     if (!existing) throw new AppError(404, "NOT_FOUND", "Contact not found.");
     const sent = await app.prisma.releaseJob.count({ where: { personId: id, status: "sent" } });
     if (sent > 0) throw new AppError(409, "CONTACT_HAS_DELIVERIES", "This contact already received a memory and cannot be removed.");
-    await app.prisma.person.delete({ where: { id } });
+    await app.prisma.$transaction(async (tx) => {
+      await cancelFutureDeliveriesForPerson(tx, id, new Date());
+      await tx.person.delete({ where: { id } });
+    });
     return reply.code(204).send();
   });
 
   app.post("/contacts/:id/verification", async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
+    assertContactId(id);
     const person = await app.prisma.person.findFirst({ where: { id, ownerUserId: user.id } });
     if (!person?.email) throw new AppError(404, "NOT_FOUND", "Contact not found.");
     const code = randomToken(9);
+    await app.prisma.contactVerificationToken.updateMany({
+      where: { personId: person.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
     await app.prisma.contactVerificationToken.create({
       data: { personId: person.id, tokenHash: sha256(code), expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000) },
     });
@@ -146,7 +170,7 @@ export async function contactRoutes(app: FastifyInstance) {
       to: person.email,
       templateId: "contact_verification",
       variables: { code },
-      idempotencyKey: `contact-verify:${person.id}:${code.slice(0, 8)}`,
+      idempotencyKey: `contact-verify:${person.id}:${sha256(code).slice(0, 16)}`,
       relatedType: "person",
       relatedId: person.id,
     });
@@ -156,6 +180,7 @@ export async function contactRoutes(app: FastifyInstance) {
   app.post("/contacts/:id/verify", async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
+    assertContactId(id);
     const person = await app.prisma.person.findFirst({ where: { id, ownerUserId: user.id }, include: { roles: true } });
     if (!person) throw new AppError(404, "NOT_FOUND", "Contact not found.");
     const parsed = z.object({ code: z.string().min(8, "Enter the verification code.") }).safeParse(request.body);

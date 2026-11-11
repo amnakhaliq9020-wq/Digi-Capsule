@@ -81,7 +81,7 @@ export default function ContactsPage() {
 
   async function remove(contact: Contact) {
     setError("");
-    if (!window.confirm(`Remove ${contact.displayName}?`)) return;
+    if (!window.confirm(`Remove ${contact.displayName}? This deletes the contact and cancels future deliveries to them. Your memories stay in your capsule.`)) return;
     try {
       await api(`/v1/contacts/${contact.id}`, { method: "DELETE" });
       if (editing === contact.id) {

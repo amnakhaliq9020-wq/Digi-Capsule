@@ -23,6 +23,13 @@ export const WARNING_MESSAGES = {
 export const CHECK_IN_INTERVAL_DAYS = 30;
 /** Phase 1 warnings: missed check-in, then 7 days later, then a final warning 7 days after that. */
 export const REMINDER_OFFSETS_DAYS = [0, 7, 14] as const;
+/** After the missed check-in, the author has this many days to confirm before escalation is recorded. */
+export const CONFIRMATION_WINDOW_DAYS = 30;
+/** Final email is sent this many days before the confirmation window ends. */
+export const CONFIRMATION_FINAL_LEAD_DAYS = 7;
+export const CONFIRMATION_WINDOW_FINAL_OFFSET_DAYS = CONFIRMATION_WINDOW_DAYS - CONFIRMATION_FINAL_LEAD_DAYS;
+/** Phase 1 offsets, plus the final notice 7 days before the 30-day confirmation window ends. */
+export const CHECK_IN_NOTICE_OFFSETS = [...REMINDER_OFFSETS_DAYS, CONFIRMATION_WINDOW_FINAL_OFFSET_DAYS] as const;
 export const UNREACHABLE_AFTER_DAYS = 21;
 /** Seven days after the final warning. Recorded only in test mode and never creates a memory delivery. */
 export const SIMULATED_RELEASE_AFTER_DAYS = 21;
@@ -32,6 +39,12 @@ export const QUORUM_REQUIRED = 2;
 export const LOGIN_MAX_FAILURES = 8;
 export const LOGIN_WINDOW_MINUTES = 15;
 export const SESSION_TTL_HOURS = 24 * 14;
+export const EMAIL_VERIFICATION_TTL_HOURS = 48;
+export const VERIFICATION_EMAIL_MAX = 3;
+export const VERIFICATION_EMAIL_WINDOW_MINUTES = 15;
+export const PASSWORD_RESET_TTL_MINUTES = 60;
+export const PASSWORD_RESET_MAX = 5;
+export const SIGNED_URL_TTL_SECONDS = 120;
 export const MAX_RELEASE_ATTEMPTS = 5;
 
 export const PHOTO_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
@@ -39,6 +52,8 @@ export const VIDEO_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"] a
 
 export const DEFAULT_MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 export const DEFAULT_MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_MAX_UPLOADS_PER_USER = 100;
+export const DEFAULT_MAX_UPLOAD_BYTES_PER_USER = 1024 * 1024 * 1024;
 
 export type ReminderOffset = (typeof REMINDER_OFFSETS_DAYS)[number];
 
@@ -50,6 +65,8 @@ export function warningStageForOffset(offset: number | null): string {
       return "second_warning";
     case 14:
       return "final_warning";
+    case CONFIRMATION_WINDOW_FINAL_OFFSET_DAYS:
+      return "confirmation_window_final";
     default:
       return "on_time";
   }

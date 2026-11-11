@@ -17,6 +17,7 @@ type Memory = {
   attachments: { id: string; kind: "photo" | "video"; originalName: string }[];
   schedule: { localDate: string | null; localTime: string | null; timeZone: string; nextRunAt: string | null } | null;
   delivery: { sent: number; failed: boolean; pending: boolean };
+  access?: "owner" | "recipient";
 };
 
 export default function MemoryDetailPage() {
@@ -70,7 +71,9 @@ function MemoryDetail() {
           <div className="title-row"><h1>{memory.title}</h1><span className="pill">{memoryStatusLabel(memory.status)}</span><span className="pill">{deliveryModeLabel(memory.deliveryMode)}</span></div>
           <div className="card stack">
             <p className="preserve">{memory.body || "This memory has no letter."}</p>
-            <p className="muted">Recipients: {memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "None yet"}</p>
+            {memory.access === "recipient" ? <p className="muted">This is the released copy shared with you.</p> : (
+              <p className="muted">Recipients: {memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "None yet"}</p>
+            )}
             {memory.schedule?.nextRunAt ? <p className="muted">Sends {formatWhen(memory.schedule.nextRunAt, timeZone)} ({memory.schedule.timeZone}).{memory.delivery.sent > 0 ? "" : " This is saved and has not been sent."}</p> : null}
             <p className="muted">Delivery status: {memory.delivery.sent > 0 ? `${memory.delivery.sent} sent` : memoryStatusLabel(memory.status)}</p>
             {memory.attachments.length === 0 ? <p className="empty">No photo or video is attached.</p> : (
@@ -86,7 +89,7 @@ function MemoryDetail() {
               </div>
             )}
           </div>
-          {memory.status !== "released" ? (
+          {memory.access !== "recipient" && memory.status !== "released" ? (
             <div className="row">
               <Link className="button" href={`/memories/${memory.id}/edit`}>Edit</Link>
               {memory.status === "scheduled" ? <button className="secondary" onClick={() => void cancel()}>Cancel delivery</button> : null}

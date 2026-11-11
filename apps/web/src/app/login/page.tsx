@@ -34,6 +34,7 @@ export default function LoginPage() {
         {error ? <p className="error" role="alert">{error}</p> : null}
         <p><button type="submit">Sign in</button></p>
       </form>
+      <p className="muted"><Link href="/forgot-password">Forgot password</Link></p>
       <p className="muted">New here? <Link href="/signup">Create an account</Link></p>
     </AuthFrame>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
 import { describeLocalChoice, formatWhen, zonesWith } from "@/lib/time";
@@ -33,13 +33,21 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [serverTime, setServerTime] = useState("");
+  const saveLock = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
-    api<{ contacts: Contact[] }>("/v1/contacts").then((data) => setContacts(data.contacts)).catch(() => undefined);
-    api<{ user: { timeZone: string } }>("/v1/auth/me").then((data) => setTimeZone(data.user.timeZone)).catch(() => undefined);
-    api<{ serverTime: string }>("/v1/health").then((data) => setServerTime(data.serverTime)).catch(() => undefined);
-    if (!memoryId) return;
-    api<{ memory: Memory }>(`/v1/memories/${memoryId}`).then((data) => {
+    let cancelled = false;
+    Promise.all([
+      api<{ user: { timeZone: string } }>("/v1/auth/me"),
+      api<{ contacts: Contact[] }>("/v1/contacts"),
+      api<{ serverTime: string }>("/v1/health"),
+      memoryId ? api<{ memory: Memory }>(`/v1/memories/${memoryId}`) : Promise.resolve(null),
+    ]).then(([profile, contactData, clock, data]) => {
+      if (cancelled) return;
+      setContacts(contactData.contacts);
+      setServerTime(clock.serverTime);
+      setTimeZone(data?.memory.schedule?.timeZone || profile.user.timeZone);
+      if (!data) return;
       setTitle(data.memory.title);
       setBody(data.memory.body);
       setAttachments(data.memory.attachments);
@@ -47,20 +55,32 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
       if (data.memory.deliveryMode === "if_i_am_gone") setMode("if_i_am_gone");
       if (data.memory.schedule?.localDate) setLocalDate(data.memory.schedule.localDate);
       if (data.memory.schedule?.localTime) setLocalTime(data.memory.schedule.localTime);
-      if (data.memory.schedule?.timeZone) setTimeZone(data.memory.schedule.timeZone);
-    }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this memory."));
+    }).catch((err) => {
+      if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not load this memory.");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [memoryId]);
 
-  async function saveDraft() {
+  function saveDraft() {
+    if (saveLock.current) return saveLock.current;
     setError("");
     const payload = { title, body };
-    const saved = id
-      ? await api<{ memory: Memory }>(`/v1/memories/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
-      : await api<{ memory: Memory }>("/v1/memories", { method: "POST", body: JSON.stringify(payload) });
-    setId(saved.memory.id);
-    setMessage("Draft saved. It is still private.");
-    if (!memoryId) router.replace(`/memories/${saved.memory.id}/edit`);
-    return saved.memory.id;
+    const pending = (id
+      ? api<{ memory: Memory }>(`/v1/memories/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+      : api<{ memory: Memory }>("/v1/memories", { method: "POST", body: JSON.stringify(payload) }))
+      .then((saved) => {
+        setId(saved.memory.id);
+        setMessage("Draft saved. It is still private.");
+        if (!memoryId) router.replace(`/memories/${saved.memory.id}/edit`);
+        return saved.memory.id;
+      })
+      .finally(() => {
+        saveLock.current = null;
+      });
+    saveLock.current = pending;
+    return pending;
   }
 
   async function upload(file: File) {
@@ -86,7 +106,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   async function schedule() {
     setError("");
     try {
-      const memory = id || await saveDraft();
+      const memory = await saveDraft();
       await api(`/v1/memories/${memory}/schedule`, {
         method: "POST",
         body: JSON.stringify({ mode, localDate, localTime, timeZone, recipientIds: selected }),

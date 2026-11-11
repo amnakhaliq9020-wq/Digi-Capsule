@@ -1,5 +1,6 @@
 import { PgBoss } from "pg-boss";
 import { env } from "./env";
+import { OFFICIAL_FROM, usesLiveSmtp } from "./lib/mail";
 import { PrismaClient } from "@digi/db";
 import { runWorkerTick } from "./services/worker-tick";
 
@@ -18,7 +19,16 @@ await boss.work("digi-tick", async () => {
   console.info("[worker] tick (server time)", result);
 });
 
-console.info("Digi Capsule worker started. It uses real server time and checks every minute. The test-console clock is separate.");
+await boss.createQueue("digi-check-in");
+await boss.schedule("digi-check-in", "0 3 * * *", {}, { tz: "UTC" });
+await boss.work("digi-check-in", async () => {
+  const result = await runWorkerTick(prisma);
+  console.info("[worker] daily account check (03:00 UTC)", result);
+});
+
+console.info("Digi Capsule worker started. It uses real server time. Account check-ins run every minute and on the daily 03:00 UTC schedule. The test-console clock is separate.");
+console.info(`Mail transport: ${usesLiveSmtp() ? "smtp" : "console"}`);
+console.info(`Mail sender: ${OFFICIAL_FROM}`);
 console.info(`Verification content release enabled: ${process.env.VERIFICATION_RELEASES_ENABLED === "true" && process.env.NODE_ENV !== "production"}`);
 
 async function shutdown() {

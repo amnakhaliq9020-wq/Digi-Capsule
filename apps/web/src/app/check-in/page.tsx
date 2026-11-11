@@ -12,6 +12,9 @@ type CheckIn = {
   warningStage: string;
   daysOverdue: number;
   review: { label: string } | null;
+  accountCheckStatus: string;
+  escalationStatus: string;
+  confirmationDeadline: string | null;
   events: { id: string; type: string; offsetDays: number | null; at: string }[];
 };
 
@@ -30,6 +33,28 @@ function CheckInBody() {
   }
   useEffect(() => { void load().catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the check-in.")); }, []);
 
+  async function pause() {
+    setError("");
+    try {
+      const result = await api<{ message: string }>("/v1/check-in/pause", { method: "POST" });
+      setMessage(result.message);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not pause the check-in.");
+    }
+  }
+
+  async function resume() {
+    setError("");
+    try {
+      const result = await api<{ message: string }>("/v1/check-in/resume", { method: "POST" });
+      setMessage(result.message);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not resume the check-in.");
+    }
+  }
+
   async function alive() {
     setError("");
     try {
@@ -45,7 +70,7 @@ function CheckInBody() {
     <>
       <h1>Check-in</h1>
       {error ? <p className="error" role="alert">{error}</p> : null}
-      <p className="muted">Pressing I'm Alive records the server time and sets the next check-in 30 days later. Times are shown in {timeZone}. It never sends a memory. Warnings follow the missed check-in, then 7 days, then a final warning 7 days later.</p>
+      <p className="muted">Pressing I'm Alive records the server time and sets the next check-in 30 days later. Times are shown in {timeZone}. It never sends a memory. If 30 days pass, the server emails a single-use confirmation link and opens another 30-day window. Reminders follow at 7 and 14 days, with a final warning 7 days before that window ends. Reaching the end records an escalation for review. It does not decide that you have died and it does not release memories.</p>
       {data?.review ? <p className="callout-warn card">{data.review.label}</p> : null}
       {data ? (
         <div className="grid">
@@ -53,9 +78,16 @@ function CheckInBody() {
           <article className="card stat"><span>Next due</span><strong>{data.nextCheckInDueAt ? `${formatWhen(data.nextCheckInDueAt, timeZone)} (${timeZone})` : "Not yet"}</strong></article>
           <article className="card stat"><span>Status</span><strong>{data.status === "overdue" ? "Check-in is overdue" : "Check-in is on time"}{data.daysOverdue ? `. ${data.daysOverdue} days past due` : ""}</strong></article>
           <article className="card stat"><span>Warning stage</span><strong>{data.warningStage.replaceAll("_", " ")}</strong></article>
+          <article className="card stat"><span>Confirmation status</span><strong>{data.accountCheckStatus.replaceAll("_", " ")}</strong></article>
+          <article className="card stat"><span>Confirmation deadline</span><strong>{data.confirmationDeadline ? `${formatWhen(data.confirmationDeadline, timeZone)} (${timeZone})` : "Not open"}</strong></article>
+          <article className="card stat"><span>Escalation</span><strong>{data.escalationStatus.replaceAll("_", " ")}</strong></article>
         </div>
       ) : <p className="loading">Loading…</p>}
-      <p className="actions"><button className="alive" onClick={() => void alive()}>I'm Alive</button></p>
+      <p className="actions">
+        <button className="alive" onClick={() => void alive()}>I'm Alive</button>
+        <button className="secondary" onClick={() => void pause()}>Pause warnings for 30 days</button>
+        <button className="secondary" onClick={() => void resume()}>Resume warnings</button>
+      </p>
       {message ? <p className="banner">{message}</p> : null}
     </>
   );

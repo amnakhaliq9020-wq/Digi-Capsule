@@ -29,14 +29,15 @@ async function main() {
       profile: { create: { displayName: "Demo Author", timeZone: "UTC" } },
       consentRecords: {
         create: [
-          { purpose: "terms", policyVersion: "2026-11-05", grantedAt: now, source: "seed" },
-          { purpose: "privacy", policyVersion: "2026-11-05", grantedAt: now, source: "seed" },
+          { purpose: "terms", policyVersion: "2026-11-10", grantedAt: now, source: "seed" },
+          { purpose: "privacy", policyVersion: "2026-11-10", grantedAt: now, source: "seed" },
         ],
       },
       checkInPolicy: {
         create: {
           intervalDays: 30,
           nextDueAt: due,
+          nextCheckAt: due,
           reminderOffsets: [0, 7, 14],
           unreachableAfterDays: 21,
         },

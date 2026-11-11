@@ -3,8 +3,6 @@ import type { VerificationState as StoredVerificationState } from "@prisma/clien
 import {
   calendarJobKey,
   daysOverdue,
-  dueReminderOffsets,
-  reminderKey,
   shouldNotifyTrustedContacts,
   shouldRecordSimulatedRelease,
   simulatedReleaseKey,
@@ -14,12 +12,13 @@ import {
   verificationReducer,
   type VerificationState,
 } from "@digi/domain";
-import { CANCELLATION_WINDOW_HOURS, MAX_RELEASE_ATTEMPTS, REMINDER_OFFSETS_DAYS, SIMULATED_RELEASE_AFTER_DAYS, UNREACHABLE_AFTER_DAYS } from "@digi/shared";
+import { CANCELLATION_WINDOW_HOURS, MAX_RELEASE_ATTEMPTS, SIMULATED_RELEASE_AFTER_DAYS, UNREACHABLE_AFTER_DAYS } from "@digi/shared";
 import { isTestMode, isVerificationReleaseEnabled } from "../env";
 import { decryptText } from "../lib/crypto";
 import { isUniqueViolation } from "../errors";
 import { currentInstant, readDeveloperClock } from "../lib/clock";
 import { deliverEmail } from "../lib/notify";
+import { sendDueCheckInNotices } from "./check-in-notices";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -32,7 +31,7 @@ export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?
   const now = options?.simulated ? await readDeveloperClock(prisma) : await currentInstant(prisma);
   const ownerUserId = options?.ownerUserId;
   const calendarJobsSent = await processCalendar(prisma, now, ownerUserId);
-  const { remindersSent, simulatedReleasesRecorded } = await processReminders(prisma, now, ownerUserId);
+  const { remindersSent, simulatedReleasesRecorded, confirmationEscalations } = await processReminders(prisma, now, ownerUserId);
   let verificationJobsSent = 0;
   if (isTestMode() || isVerificationReleaseEnabled()) {
     await advanceVerificationWindows(prisma, now, ownerUserId);
@@ -40,7 +39,7 @@ export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?
   if (isVerificationReleaseEnabled()) {
     verificationJobsSent = await processVerificationReleases(prisma, now, ownerUserId);
   }
-  return { now, calendarJobsSent, remindersSent, simulatedReleasesRecorded, verificationJobsSent };
+  return { now, calendarJobsSent, remindersSent, simulatedReleasesRecorded, verificationJobsSent, confirmationEscalations };
 }
 
 async function processCalendar(prisma: PrismaClient, now: Date, ownerUserId?: string) {
@@ -262,71 +261,13 @@ async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: s
   });
   let sent = 0;
   let simulatedReleasesRecorded = 0;
+  let confirmationEscalations = 0;
   for (const cycle of cycles) {
     const policy = cycle.user.checkInPolicy;
     if (!policy || !cycle.user.email) continue;
-    const sentOffsets = cycle.events
-      .filter((event) => event.type === "notice_sent" || event.type === "reminder_sent")
-      .map((event) => event.offsetDays)
-      .filter((offset): offset is number => offset !== null);
-    const offsets = dueReminderOffsets({
-      dueAt: cycle.dueAt,
-      now,
-      sentOffsets,
-      pausedUntil: policy.pausedUntil,
-      offsets: REMINDER_OFFSETS_DAYS,
-    });
-    for (const offset of offsets) {
-      const templateId = offset === 0 ? "check_in_due" : "check_in_reminder";
-      const stage = offset === 0 ? "missed_check_in" : offset === 7 ? "second_warning" : "final_warning";
-      const notice = await deliverEmail(prisma, {
-        to: cycle.user.email,
-        templateId,
-        variables: {
-          authorName: cycle.user.profile?.displayName || "there",
-          stage,
-          channel: "email",
-        },
-        idempotencyKey: reminderKey(cycle.id, offset, "email"),
-        relatedType: "check_in_cycle",
-        relatedId: cycle.id,
-      });
-      if (notice.status === "queued" || notice.status === "sent") {
-        const already = cycle.events.some(
-          (event) => event.offsetDays === offset && (event.type === "notice_sent" || event.type === "reminder_sent"),
-        );
-        if (!already && notice.providerMessageId) {
-          await prisma.checkInEvent.create({
-            data: {
-              cycleId: cycle.id,
-              type: offset === 0 ? "notice_sent" : "reminder_sent",
-              offsetDays: offset,
-              at: now,
-              notificationId: notice.id,
-            },
-          });
-          sent += 1;
-        }
-      }
-      if (isTestMode()) {
-        await deliverEmail(prisma, {
-          to: `sms-mock:${cycle.user.email}`,
-          channel: "sms",
-          templateId,
-          variables: {
-            authorName: cycle.user.profile?.displayName || "there",
-            stage,
-            channel: "sms",
-          },
-          idempotencyKey: reminderKey(cycle.id, offset, "sms"),
-          relatedType: "check_in_cycle",
-          relatedId: cycle.id,
-        });
-      }
-    }
-    if (offsets.some((offset) => offset > 0)) {
-      await prisma.checkInCycle.update({ where: { id: cycle.id }, data: { state: "reminded" } });
-    }
+    const notices = await sendDueCheckInNotices(prisma, cycle.id, now);
+    sent += notices.remindersSent;
+    confirmationEscalations += notices.confirmationEscalations;
     const simulatedAlready = cycle.events.some((event) => event.type === "simulated_release_recorded");
     if (
       isTestMode() &&
@@ -391,7 +332,7 @@ async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: s
       await prisma.checkInCycle.update({ where: { id: cycle.id }, data: { state: "missed_unreachable" } });
     }
   }
-  return { remindersSent: sent, simulatedReleasesRecorded };
+  return { remindersSent: sent, simulatedReleasesRecorded, confirmationEscalations };
 }
 
 export async function advanceVerificationWindows(prisma: PrismaClient, now: Date, ownerUserId?: string) {

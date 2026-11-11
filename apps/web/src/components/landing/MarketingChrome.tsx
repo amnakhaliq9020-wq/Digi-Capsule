@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { footerInfo, routes } from "./site";
+import { footerBlurb, footerInfo, routes } from "./site";
 import styles from "./landing.module.css";
 
 export function MarketingChrome({ children }: { children: ReactNode }) {
@@ -15,7 +15,7 @@ export function MarketingChrome({ children }: { children: ReactNode }) {
           </Link>
           <div className={styles.actions}>
             <Link className={styles.signIn} href={routes.signIn}>Sign in</Link>
-            <Link className={styles.early} href={routes.start}>Get early access</Link>
+            <Link className={styles.early} href="#waitlist-email">Get Early Access</Link>
           </div>
         </div>
       </header>
@@ -23,8 +23,14 @@ export function MarketingChrome({ children }: { children: ReactNode }) {
         {children}
       </main>
       <footer className={styles.footer}>
-        <div className={`${styles.wrap} ${styles.footerRow}`}>
-          <p>© 2026 Digi Capsule</p>
+        <div className={styles.footerGrid}>
+          <div>
+            <Link className={styles.brand} href={routes.home}>
+              <img src="/logo.png" alt="" width={40} height={40} />
+              Digi Capsule
+            </Link>
+            <p>{footerBlurb}</p>
+          </div>
           <nav aria-label="Information">
             <ul>
               {footerInfo.map((item) => (
@@ -33,6 +39,7 @@ export function MarketingChrome({ children }: { children: ReactNode }) {
             </ul>
           </nav>
         </div>
+        <p className={styles.copyright}>© 2026 Digi Capsule</p>
       </footer>
     </div>
   );

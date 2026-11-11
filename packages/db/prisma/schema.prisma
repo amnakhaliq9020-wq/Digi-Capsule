@@ -98,6 +98,19 @@ enum CheckInEventType {
   simulated_release_recorded
 }
 
+enum AccountCheckStatus {
+  on_time
+  awaiting_confirmation
+  paused
+  escalation_pending
+}
+
+enum EscalationStatus {
+  none
+  pending
+  cancelled
+}
+
 enum VerificationState {
   open
   collecting
@@ -125,7 +138,10 @@ enum NotificationChannel {
 
 enum NotificationStatus {
   queued
+  pending
+  processing
   sent
+  delivered
   failed
   bounced
   cancelled
@@ -157,10 +173,14 @@ model User {
   mediaAssets              MediaAsset[]
   checkInPolicy            CheckInPolicy?
   checkInCycles            CheckInCycle[]
+  checkInConfirmationTokens CheckInConfirmationToken[]
   verificationCases        VerificationCase[]
   consentRecords           ConsentRecord[]
   auditEvents              AuditEvent[]
   emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
+  mediaAccessTokens        MediaAccessToken[]
+  notificationDeliveries   NotificationDelivery[]
 
   @@map("users")
 }
@@ -172,6 +192,7 @@ model Profile {
   locale               String  @default("en")
   checkInChannelEmail  Boolean @default(true) @map("check_in_channel_email")
   checkInChannelSms    Boolean @default(false) @map("check_in_channel_sms")
+  phoneE164            String? @map("phone_e164")
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
@@ -197,9 +218,24 @@ model EmailVerificationToken {
   tokenHash String    @unique @map("token_hash")
   expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
   usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, createdAt])
   @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("password_reset_tokens")
 }
 
 model LoginAttempt {
@@ -263,9 +299,24 @@ model MediaAsset {
   deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz(6)
   owner        User        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   links        ItemMedia[]
+  accessTokens MediaAccessToken[]
 
   @@index([ownerUserId, status])
   @@map("media_assets")
+}
+
+model MediaAccessToken {
+  id        String     @id @default(uuid()) @db.Uuid
+  assetId   String     @map("asset_id") @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  tokenHash String     @unique @map("token_hash")
+  expiresAt DateTime   @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  asset     MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("media_access_tokens")
 }
 
 model ItemMedia {
@@ -384,16 +435,25 @@ model ReleaseJob {
 }
 
 model CheckInPolicy {
-  userId                String    @id @map("user_id") @db.Uuid
-  intervalDays          Int       @default(30) @map("interval_days")
-  pausedUntil           DateTime? @map("paused_until") @db.Timestamptz(6)
-  nextDueAt             DateTime  @map("next_due_at") @db.Timestamptz(6)
-  reminderOffsets       Json      @map("reminder_offsets")
-  unreachableAfterDays  Int       @default(21) @map("unreachable_after_days")
-  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                  String             @id @map("user_id") @db.Uuid
+  intervalDays            Int                @default(30) @map("interval_days")
+  pausedUntil             DateTime?          @map("paused_until") @db.Timestamptz(6)
+  nextDueAt               DateTime           @map("next_due_at") @db.Timestamptz(6)
+  nextCheckAt             DateTime           @map("next_check_at") @db.Timestamptz(6)
+  lastConfirmedAt         DateTime?          @map("last_confirmed_at") @db.Timestamptz(6)
+  confirmationRequestedAt DateTime?          @map("confirmation_requested_at") @db.Timestamptz(6)
+  confirmationDeadline    DateTime?          @map("confirmation_deadline") @db.Timestamptz(6)
+  accountCheckStatus      AccountCheckStatus @default(on_time) @map("account_check_status")
+  lastNotificationSentAt  DateTime?          @map("last_notification_sent_at") @db.Timestamptz(6)
+  escalationStatus        EscalationStatus   @default(none) @map("escalation_status")
+  warningGeneration       Int                @default(1) @map("warning_generation")
+  reminderOffsets         Json               @map("reminder_offsets")
+  unreachableAfterDays    Int                @default(21) @map("unreachable_after_days")
+  updatedAt               DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([nextDueAt])
+  @@index([nextCheckAt])
   @@map("check_in_policies")
 }
 
@@ -412,6 +472,19 @@ model CheckInCycle {
   @@map("check_in_cycles")
 }
 
+model CheckInConfirmationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("check_in_confirmation_tokens")
+}
+
 model CheckInEvent {
   id             String           @id @default(uuid()) @db.Uuid
   cycleId        String           @map("cycle_id") @db.Uuid
@@ -421,6 +494,7 @@ model CheckInEvent {
   notificationId String?          @map("notification_id") @db.Uuid
   cycle          CheckInCycle     @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 
+  @@unique([cycleId, type, offsetDays])
   @@index([cycleId, at])
   @@map("check_in_events")
 }
@@ -463,6 +537,7 @@ model Attestation {
 
 model NotificationDelivery {
   id                String               @id @default(uuid()) @db.Uuid
+  userId            String?              @map("user_id") @db.Uuid
   idempotencyKey    String               @unique @map("idempotency_key")
   channel           NotificationChannel
   templateId        String               @map("template_id")
@@ -472,10 +547,17 @@ model NotificationDelivery {
   relatedId         String               @map("related_id")
   providerMessageId String?              @map("provider_message_id")
   errorCode         String?              @map("error_code")
+  scheduledAt       DateTime?            @map("scheduled_at") @db.Timestamptz(6)
+  sentAt            DateTime?            @map("sent_at") @db.Timestamptz(6)
+  cancelledAt       DateTime?            @map("cancelled_at") @db.Timestamptz(6)
+  generationId      Int?                 @map("generation_id")
+  attemptCount      Int                  @default(0) @map("attempt_count")
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user              User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([relatedType, relatedId])
+  @@index([userId, status])
   @@map("notification_deliveries")
 }
 
@@ -512,6 +594,33 @@ model DevClock {
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("dev_clock")
+}
+
+model WaitlistEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("waitlist_entries")
+}
+
+model MailServerSetting {
+  id               Int       @id @default(1)
+  host             String
+  port             Int
+  username         String
+  passwordCipher   Bytes?    @map("password_cipher")
+  passwordNonce    Bytes?    @map("password_nonce")
+  passwordTag      Bytes?    @map("password_tag")
+  encryption       String    @default("starttls")
+  connectionStatus String    @default("unverified") @map("connection_status")
+  lastSuccessAt    DateTime? @map("last_success_at") @db.Timestamptz(6)
+  lastFailureAt    DateTime? @map("last_failure_at") @db.Timestamptz(6)
+  lastFailureCode  String?   @map("last_failure_code")
+  senderVerifiedAt DateTime? @map("sender_verified_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("mail_server_settings")
 }
 
 model DevMessage {

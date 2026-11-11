@@ -13,7 +13,7 @@ export default function TermsPage() {
     <PublicDocument
       kicker={`Version ${policyVersion}`}
       title="Terms"
-      lede="These terms describe the Digi Capsule application in this build. They are not a substitute for advice from a lawyer. Creating an account stores a record that version 2026-11-05 of these terms and the privacy notice was accepted."
+      lede={`These terms describe the Digi Capsule application in this build. They are not a substitute for advice from a lawyer. Creating an account stores a record that version ${policyVersion} of these terms and the privacy notice was accepted.`}
     >
       <h2>What the product is</h2>
       <p>Digi Capsule is a private place to keep letters, photographs, and videos for people you name, and to hold a memory until a date you choose. You control the drafts, the recipients, and the delivery condition.</p>
@@ -26,7 +26,7 @@ export default function TermsPage() {
         <li>It does not include an AI face or voice. That experience is planned and is not available.</li>
       </ul>
       <h2>Your account</h2>
-      <p>You need an email address and a password. You confirm the email with a code shown in the application. You choose a time zone so a scheduled date has a local meaning. Sign-out ends the current session.</p>
+      <p>You need an email address and a password. You confirm the email with a single-use code or link. In this build that message is recorded locally. You can change the password while signed in, or reset it from the sign-in page. A reset signs out existing sessions. You choose a time zone so a scheduled date has a local meaning. Sign-out ends the current session.</p>
       <h2>Your memories</h2>
       <p>Do not upload something you do not have the right to store. Photos are limited to 15 MB and videos to 100 MB unless the server limits are configured differently. A draft is private. Scheduling a memory names the people and the condition; it does not by itself send mail.</p>
       <p>The privacy practices are in the <Link href={routes.privacy}>privacy notice</Link>.</p>

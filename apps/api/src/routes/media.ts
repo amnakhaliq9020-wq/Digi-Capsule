@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Readable } from "node:stream";
+import { z } from "zod";
 import { PHOTO_MIME_TYPES, VIDEO_MIME_TYPES } from "@digi/shared";
 import { requireUser } from "../auth";
 import { env } from "../env";
 import { AppError } from "../errors";
+import { recipientCanView } from "../lib/access";
+import { audit } from "../lib/audit";
+import { randomToken, sha256 } from "../lib/crypto";
 
 function matchesDeclaredType(mime: string, body: Buffer): boolean {
   if (mime === "image/jpeg") return body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
@@ -26,10 +31,45 @@ function sanitizeName(name: string) {
   return base.slice(0, 120) || "upload";
 }
 
+function assertAssetId(id: string) {
+  if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "File not found.");
+}
+
+async function assetForUser(app: FastifyInstance, userId: string, assetId: string) {
+  const owned = await app.prisma.mediaAsset.findFirst({
+    where: { id: assetId, ownerUserId: userId, status: "ready", deletedAt: null },
+  });
+  if (owned) return owned;
+  const links = await app.prisma.itemMedia.findMany({
+    where: { mediaAssetId: assetId, asset: { status: "ready", deletedAt: null }, item: { status: "released" } },
+    include: {
+      asset: true,
+      item: {
+        include: {
+          capsule: { select: { ownerUserId: true } },
+          grants: { include: { person: true } },
+          releaseJobs: true,
+        },
+      },
+    },
+  });
+  return links.find((link) => recipientCanView(userId, link.item))?.asset ?? null;
+}
+
+function sendPrivateFile(reply: FastifyReply, asset: { mimeType: string; originalName: string }, stream: Readable) {
+  return reply
+    .header("Content-Type", asset.mimeType)
+    .header("Content-Disposition", `inline; filename="${asset.originalName.replace(/"/g, "")}"`)
+    .header("Cache-Control", "private, no-store")
+    .header("X-Content-Type-Options", "nosniff")
+    .send(stream);
+}
+
 export async function mediaRoutes(app: FastifyInstance) {
   app.post("/memories/:id/attachments", async (request, reply) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Memory not found.");
     const item = await app.prisma.capsuleItem.findFirst({
       where: { id, status: { not: "cancelled" }, capsule: { ownerUserId: user.id } },
       include: { releaseJobs: true },
@@ -37,6 +77,12 @@ export async function mediaRoutes(app: FastifyInstance) {
     if (!item) throw new AppError(404, "NOT_FOUND", "Memory not found.");
     if (item.status === "released" || item.releaseJobs.some((job) => job.status === "sent")) {
       throw new AppError(409, "ALREADY_DELIVERED", "Attachments cannot be changed after delivery.");
+    }
+    const usageWhere = { ownerUserId: user.id, status: { in: ["pending", "ready"] as ("pending" | "ready")[] }, deletedAt: null };
+    const usedCount = await app.prisma.mediaAsset.count({ where: usageWhere });
+    const usedBytes = await app.prisma.mediaAsset.aggregate({ where: usageWhere, _sum: { byteSize: true } });
+    if (usedCount >= env.MAX_UPLOADS_PER_USER) {
+      throw new AppError(400, "UPLOAD_LIMIT", "This account has reached its file upload limit.");
     }
     const file = await request.file();
     if (!file) throw new AppError(400, "VALIDATION_ERROR", "Choose a photo or video to upload.");
@@ -50,6 +96,9 @@ export async function mediaRoutes(app: FastifyInstance) {
     const limit = isPhoto ? env.MAX_PHOTO_BYTES : env.MAX_VIDEO_BYTES;
     if (body.length > limit) {
       throw new AppError(400, "FILE_TOO_LARGE", isPhoto ? "Photos must be 15 MB or smaller." : "Videos must be 100 MB or smaller.");
+    }
+    if ((usedBytes._sum.byteSize ?? 0) + body.length > env.MAX_UPLOAD_BYTES_PER_USER) {
+      throw new AppError(400, "UPLOAD_LIMIT", "This account has reached its upload storage limit.");
     }
     if (body.length === 0) throw new AppError(400, "VALIDATION_ERROR", "The file is empty.");
     if (!matchesDeclaredType(mime, body)) {
@@ -73,7 +122,8 @@ export async function mediaRoutes(app: FastifyInstance) {
       const count = await app.prisma.itemMedia.count({ where: { itemId: item.id } });
       await app.prisma.itemMedia.create({ data: { itemId: item.id, mediaAssetId: asset.id, position: count } });
     } catch (error) {
-      await app.prisma.mediaAsset.update({ where: { id: asset.id }, data: { status: "failed" } });
+      await app.storage.remove(storageKey).catch(() => undefined);
+      await app.prisma.mediaAsset.update({ where: { id: asset.id }, data: { storageKey, status: "failed" } });
       throw error;
     }
     return reply.code(201).send({
@@ -84,6 +134,8 @@ export async function mediaRoutes(app: FastifyInstance) {
   app.delete("/memories/:id/attachments/:assetId", async (request, reply) => {
     const user = await requireUser(request);
     const { id, assetId } = request.params as { id: string; assetId: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Attachment not found.");
+    assertAssetId(assetId);
     const link = await app.prisma.itemMedia.findFirst({
       where: { itemId: id, mediaAssetId: assetId, item: { capsule: { ownerUserId: user.id }, status: { notIn: ["cancelled", "released"] } } },
       include: { asset: true, item: { include: { releaseJobs: true } } },
@@ -101,16 +153,59 @@ export async function mediaRoutes(app: FastifyInstance) {
   app.get("/media/:assetId/content", async (request, reply) => {
     const user = await requireUser(request);
     const { assetId } = request.params as { assetId: string };
-    const asset = await app.prisma.mediaAsset.findFirst({
-      where: { id: assetId, ownerUserId: user.id, status: "ready", deletedAt: null },
-    });
+    assertAssetId(assetId);
+    const asset = await assetForUser(app, user.id, assetId);
     if (!asset) throw new AppError(404, "NOT_FOUND", "File not found.");
+    await audit(app.prisma, {
+      actorUserId: user.id,
+      action: "media.read",
+      entityType: "media_asset",
+      entityId: asset.id,
+    });
     const stream = await app.storage.open(asset.storageKey);
-    return reply
-      .header("Content-Type", asset.mimeType)
-      .header("Content-Disposition", `inline; filename="${asset.originalName.replace(/"/g, "")}"`)
-      .header("Cache-Control", "private, no-store")
-      .header("X-Content-Type-Options", "nosniff")
-      .send(stream);
+    return sendPrivateFile(reply, asset, stream);
+  });
+
+  app.post(
+    "/media/:assetId/signed-url",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (request) => {
+      const user = await requireUser(request);
+      const { assetId } = request.params as { assetId: string };
+      assertAssetId(assetId);
+      const asset = await assetForUser(app, user.id, assetId);
+      if (!asset) throw new AppError(404, "NOT_FOUND", "File not found.");
+      const token = randomToken();
+      const expiresAt = new Date(Date.now() + env.SIGNED_URL_TTL_SECONDS * 1000);
+      await app.prisma.mediaAccessToken.create({
+        data: { assetId: asset.id, userId: user.id, tokenHash: sha256(token), expiresAt },
+      });
+      return { url: `/v1/media/signed/${token}`, expiresAt: expiresAt.toISOString() };
+    },
+  );
+
+  app.get("/media/signed/:token", async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const row = await app.prisma.mediaAccessToken.findUnique({
+      where: { tokenHash: sha256(token) },
+      include: { asset: true },
+    });
+    if (
+      !row ||
+      row.expiresAt.getTime() <= Date.now() ||
+      row.asset.ownerUserId !== row.userId ||
+      row.asset.status !== "ready" ||
+      row.asset.deletedAt
+    ) {
+      throw new AppError(401, "UNAUTHORIZED", "This file link is invalid or has expired.");
+    }
+    await audit(app.prisma, {
+      actorUserId: row.userId,
+      action: "media.signed_read",
+      entityType: "media_asset",
+      entityId: row.assetId,
+    });
+    const stream = await app.storage.open(row.asset.storageKey);
+    return sendPrivateFile(reply, row.asset, stream);
   });
 }

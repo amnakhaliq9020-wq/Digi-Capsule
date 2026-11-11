@@ -4,6 +4,7 @@ import { exactInstant, assertFutureInstant } from "@digi/domain";
 import { z } from "zod";
 import { requireUser } from "../auth";
 import { AppError, fromZod } from "../errors";
+import { recipientCanView } from "../lib/access";
 import { audit } from "../lib/audit";
 import { currentInstant, usesSimulationClock } from "../lib/clock";
 import { decryptText, encryptText } from "../lib/crypto";
@@ -98,13 +99,23 @@ function presentMemory(item: ItemGraph) {
 }
 
 const include = {
+  capsule: { select: { ownerUserId: true } },
   releaseRules: true,
   releaseJobs: true,
   grants: { include: { person: true } },
   media: { include: { asset: true } },
 } as const;
 
+function asMemory(item: ItemGraph, access: "owner" | "recipient") {
+  return { memory: { ...presentMemory(item), access } };
+}
+
+function assertUuid(id: string) {
+  if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Memory not found.");
+}
+
 async function ownedMemory(app: FastifyInstance, userId: string, id: string) {
+  assertUuid(id);
   const item = await app.prisma.capsuleItem.findFirst({
     where: { id, status: { not: "cancelled" }, capsule: { ownerUserId: userId } },
     include,
@@ -149,13 +160,37 @@ export async function memoryRoutes(app: FastifyInstance) {
       include,
     });
     await audit(app.prisma, { actorUserId: user.id, action: "memory.created", entityType: "capsule_item", entityId: item.id });
-    return reply.code(201).send({ memory: presentMemory(item) });
+    return reply.code(201).send(asMemory(item, "owner"));
+  });
+
+  app.get("/received", async (request) => {
+    const user = await requireUser(request);
+    const items = await app.prisma.capsuleItem.findMany({
+      where: {
+        status: "released",
+        grants: { some: { revokedAt: null, person: { linkedUserId: user.id } } },
+      },
+      include,
+      orderBy: { updatedAt: "desc" },
+    });
+    return { memories: items.filter((item) => recipientCanView(user.id, item)).map((item) => asMemory(item, "recipient").memory) };
   });
 
   app.get("/memories/:id", async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
-    return { memory: presentMemory(await ownedMemory(app, user.id, id)) };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Memory not found.");
+    const owned = await app.prisma.capsuleItem.findFirst({
+      where: { id, status: { not: "cancelled" }, capsule: { ownerUserId: user.id } },
+      include,
+    });
+    if (owned) return asMemory(owned, "owner");
+    const shared = await app.prisma.capsuleItem.findFirst({
+      where: { id, status: "released" },
+      include,
+    });
+    if (shared && recipientCanView(user.id, shared)) return asMemory(shared, "recipient");
+    throw new AppError(404, "NOT_FOUND", "Memory not found.");
   });
 
   app.patch("/memories/:id", async (request) => {
@@ -183,16 +218,16 @@ export async function memoryRoutes(app: FastifyInstance) {
       },
       include,
     });
-    return { memory: presentMemory(updated) };
+    return asMemory(updated, "owner");
   });
 
   app.post("/memories/:id/schedule", async (request) => {
     const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    const item = await ownedMemory(app, user.id, id);
     if (!user.emailVerifiedAt) {
       throw new AppError(403, "EMAIL_NOT_VERIFIED", "Verify your email before scheduling a memory.");
     }
-    const { id } = request.params as { id: string };
-    const item = await ownedMemory(app, user.id, id);
     if (item.releaseJobs.some((job) => job.status === "sent")) {
       throw new AppError(409, "ALREADY_DELIVERED", "This memory has already been delivered.");
     }
@@ -279,7 +314,7 @@ export async function memoryRoutes(app: FastifyInstance) {
       });
       return saved;
     });
-    return { memory: presentMemory(updated) };
+    return asMemory(updated, "owner");
   });
 
   app.post("/memories/:id/cancel", async (request) => {
@@ -301,7 +336,7 @@ export async function memoryRoutes(app: FastifyInstance) {
       });
       return tx.capsuleItem.update({ where: { id: item.id }, data: { status: "draft" }, include });
     });
-    return { memory: presentMemory(updated) };
+    return asMemory(updated, "owner");
   });
 
   app.delete("/memories/:id", async (request, reply) => {
