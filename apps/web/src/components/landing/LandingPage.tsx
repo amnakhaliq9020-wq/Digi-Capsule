@@ -1,3 +1,4 @@
+import { Icon, type IconName } from "@/components/icons/Icon";
 import { WaitlistForm } from "./WaitlistForm";
 import { MarketingChrome } from "./MarketingChrome";
 import { audiences, closing, hero, privacy, timeMeaning, vision, what, why } from "./site";
@@ -54,9 +55,9 @@ export function LandingPage() {
         <h2 id="time-title">{timeMeaning.title}</h2>
         <p className={styles.proseLine}>{timeMeaning.intro}</p>
         <ul className={styles.examples}>
-          {timeMeaning.examples.map((example) => (
+          {timeMeaning.examples.map((example, index) => (
             <li key={example.title}>
-              <h3>{example.title}</h3>
+              <h3><Icon name={(["calendar", "letter", "contacts", "delivery"] as IconName[])[index]} /> {example.title}</h3>
               <p>{example.body}</p>
             </li>
           ))}
@@ -68,9 +69,9 @@ export function LandingPage() {
         <p className={styles.kicker}>{audiences.kicker}</p>
         <h2 id="audiences-title">{audiences.title}</h2>
         <ul className={styles.people}>
-          {audiences.groups.map((group) => (
+          {audiences.groups.map((group, index) => (
             <li key={group.title}>
-              <h3>{group.title}</h3>
+              <h3><Icon name={(["contacts", "account", "trusted", "memories", "capsule"] as IconName[])[index]} /> {group.title}</h3>
               <p>{group.body}</p>
             </li>
           ))}

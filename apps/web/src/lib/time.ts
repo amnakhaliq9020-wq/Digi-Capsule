@@ -55,6 +55,22 @@ export function memoryStatusLabel(status: string) {
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+/** The calendar day the sender picked, read from the date parts so it cannot shift across midnight UTC. */
+export function civilDateLabel(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  if (!year || !month || !day || month < 1 || month > 12 || day < 1 || day > 31) return "Choose a date";
+  return `${day} ${months[month - 1]} ${year}`;
+}
+
+/** The clock time the sender picked, written with am or pm and without a Date object. */
+export function civilTimeLabel(time: string) {
+  const [hour = 0, minute = 0] = time.split(":").map(Number);
+  if (hour > 23 || minute > 59) return time;
+  const hour12 = ((hour + 11) % 12) + 1;
+  const suffix = hour < 12 ? "am" : "pm";
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 /** Show a chosen calendar date with the month name and an explicit am/pm, without shifting the clock. */
 export function describeLocalChoice(date: string, time: string, timeZone: string) {
   if (!date) return `Choose a date. Times use a 12-hour clock in ${timeZone}.`;

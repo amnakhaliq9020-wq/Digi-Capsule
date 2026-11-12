@@ -60,17 +60,37 @@ export async function devRoutes(app: FastifyInstance) {
       where: { ownerUserId: user.id },
       select: { email: true },
     });
-    const destinations = [
-      user.email,
-      `sms-mock:${user.email}`,
-      ...contacts.flatMap((contact) => (contact.email ? [contact.email] : [])),
-    ];
+    const own = new Set([user.email.toLowerCase(), `sms-mock:${user.email.toLowerCase()}`]);
+    const contactEmails = new Set(contacts.flatMap((contact) => (contact.email ? [contact.email.toLowerCase()] : [])));
     const messages = await app.prisma.devMessage.findMany({
-      where: { destination: { in: destinations } },
+      where: { destination: { in: [...own, ...contactEmails] } },
       orderBy: { createdAt: "desc" },
       take: 100,
     });
-    return { messages };
+    const memoryIds = messages.flatMap((message) => {
+      const itemId = (message.variables as { itemId?: string }).itemId;
+      return message.templateId === "memory_ready" && itemId ? [itemId] : [];
+    });
+    const owned = new Set(
+      memoryIds.length === 0
+        ? []
+        : (await app.prisma.capsuleItem.findMany({
+            where: { id: { in: memoryIds }, capsule: { ownerUserId: user.id } },
+            select: { id: true },
+          })).map((item) => item.id),
+    );
+    const contactTemplates = new Set(["contact_verification", "trusted_contact_unreachable"]);
+    return {
+      messages: messages.filter((message) => {
+        const destination = message.destination.toLowerCase();
+        if (own.has(destination)) return true;
+        if (!contactEmails.has(destination)) return false;
+        if (message.templateId === "memory_ready") {
+          return owned.has((message.variables as { itemId?: string }).itemId || "");
+        }
+        return contactTemplates.has(message.templateId);
+      }),
+    };
   });
 
   app.post("/dev/verification/cases", async (request, reply) => {

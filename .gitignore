@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.staging.example
 apps/api/.env
 apps/web/.env.local
 

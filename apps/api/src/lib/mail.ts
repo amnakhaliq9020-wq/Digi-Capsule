@@ -100,7 +100,7 @@ function brandedHtml(text: string, logo: string | null): string {
 
 export const capturedMail: { from: string; replyTo: string; to: string; subject: string }[] = [];
 
-export async function submitEmail(input: { to: string; subject: string; text: string }): Promise<{ messageId: string; envelopeFrom: string }> {
+export async function submitEmail(input: { to: string; subject: string; text: string; idempotencyKey?: string }): Promise<{ messageId: string; envelopeFrom: string }> {
   const to = input.to.trim();
   if (!to) {
     const rejected = new Error("A recipient address is required.");
@@ -112,9 +112,26 @@ export async function submitEmail(input: { to: string; subject: string; text: st
     Object.assign(rejected, { code: "ESENDER" });
     throw rejected;
   }
+  const simulated = process.env.DIGI_SMTP_RESULT;
+  if (simulated === "temporary") {
+    const rejected = new Error("The mail server connection failed before acceptance.");
+    Object.assign(rejected, { code: "ECONNECTION" });
+    throw rejected;
+  }
+  if (simulated === "permanent") {
+    const rejected = new Error("The mail server rejected the recipient.");
+    Object.assign(rejected, { code: "EENVELOPE" });
+    throw rejected;
+  }
+  if (simulated === "ambiguous") {
+    capturedMail.push({ from: OFFICIAL_FROM, replyTo: OFFICIAL_SENDER_ADDRESS, to, subject: input.subject });
+    const rejected = new Error("The connection timed out after the server may have accepted the message.");
+    Object.assign(rejected, { code: "ETIMEDOUT" });
+    throw rejected;
+  }
   if (process.env.NODE_ENV === "test") {
     capturedMail.push({ from: OFFICIAL_FROM, replyTo: OFFICIAL_SENDER_ADDRESS, to, subject: input.subject });
-    return { messageId: "test-message", envelopeFrom: OFFICIAL_SENDER_ADDRESS };
+    return { messageId: input.idempotencyKey ? `test:${input.idempotencyKey}` : "test-message", envelopeFrom: OFFICIAL_SENDER_ADDRESS };
   }
   const logo = logoPath();
   const info = await transport().sendMail({
@@ -125,6 +142,7 @@ export async function submitEmail(input: { to: string; subject: string; text: st
     subject: input.subject,
     text: input.text,
     html: brandedHtml(input.text, logo),
+    headers: input.idempotencyKey ? { "X-Digi-Idempotency-Key": input.idempotencyKey } : undefined,
     attachments: logo ? [{ filename: "logo.png", path: logo, cid: "logo@izzyai.com" }] : [],
   });
   const accepted = Array.isArray(info.accepted) && info.accepted.length > 0;
@@ -140,8 +158,9 @@ export async function submitEmail(input: { to: string; subject: string; text: st
 export function mailFailure(error: unknown): { code: string; message: string } {
   const raw = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
   if (raw === "EAUTH") return { code: "SMTP_AUTH_FAILED", message: "The mail server rejected the sign-in." };
-  if (raw === "ETIMEDOUT" || raw === "ESOCKET" || raw === "ECONNECTION") {
-    return { code: "SMTP_TIMEOUT", message: "The mail server did not respond in time." };
+  if (raw === "ETIMEDOUT") return { code: "SMTP_TIMEOUT", message: "The mail server did not respond in time. Acceptance is uncertain." };
+  if (raw === "ESOCKET" || raw === "ECONNECTION") {
+    return { code: "SMTP_UNAVAILABLE", message: "The mail server could not be reached before the message was accepted." };
   }
   if (raw === "ERECIPIENT") return { code: "RECIPIENT_REQUIRED", message: "Enter the email address that should receive this message." };
   if (raw === "ESENDER") return { code: "SMTP_SENDER_REJECTED", message: "The mail server did not accept hello@izzyai.com as the sender." };

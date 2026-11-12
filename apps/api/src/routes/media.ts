@@ -9,7 +9,9 @@ import { env } from "../env";
 import { AppError } from "../errors";
 import { recipientCanView } from "../lib/access";
 import { audit } from "../lib/audit";
+import { currentInstant } from "../lib/clock";
 import { randomToken, sha256 } from "../lib/crypto";
+import { createMediaShare, listMediaShares, openMediaShare, refreshMediaShare, revokeMediaShare, revokeMediaShares, SHARE_EXPIRY_HOURS } from "../services/media-shares";
 
 function matchesDeclaredType(mime: string, body: Buffer): boolean {
   if (mime === "image/jpeg") return body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
@@ -41,7 +43,7 @@ async function assetForUser(app: FastifyInstance, userId: string, assetId: strin
   });
   if (owned) return owned;
   const links = await app.prisma.itemMedia.findMany({
-    where: { mediaAssetId: assetId, asset: { status: "ready", deletedAt: null }, item: { status: "released" } },
+    where: { mediaAssetId: assetId, asset: { status: "ready", deletedAt: null }, item: { status: { in: ["released", "scheduled"] } } },
     include: {
       asset: true,
       item: {
@@ -56,13 +58,38 @@ async function assetForUser(app: FastifyInstance, userId: string, assetId: strin
   return links.find((link) => recipientCanView(userId, link.item))?.asset ?? null;
 }
 
-function sendPrivateFile(reply: FastifyReply, asset: { mimeType: string; originalName: string }, stream: Readable) {
-  return reply
+function byteRange(header: string | undefined, size: number) {
+  if (!header) return null;
+  const match = /^bytes=(\d+)-(\d*)$/.exec(header.trim());
+  if (!match) return "invalid" as const;
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= size || end < start) return "invalid" as const;
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function sendPrivateFile(
+  reply: FastifyReply,
+  asset: { mimeType: string; originalName: string; byteSize: number },
+  stream: Readable,
+  range?: { start: number; end: number } | null,
+) {
+  const name = asset.originalName.replace(/"/g, "");
+  reply
     .header("Content-Type", asset.mimeType)
-    .header("Content-Disposition", `inline; filename="${asset.originalName.replace(/"/g, "")}"`)
+    .header("Content-Disposition", `inline; filename="${name}"`)
     .header("Cache-Control", "private, no-store")
+    .header("Pragma", "no-cache")
+    .header("Referrer-Policy", "no-referrer")
     .header("X-Content-Type-Options", "nosniff")
-    .send(stream);
+    .header("Accept-Ranges", "bytes");
+  if (!range) {
+    reply.header("Content-Length", String(asset.byteSize));
+    return reply.send(stream);
+  }
+  reply.header("Content-Range", `bytes ${range.start}-${range.end}/${asset.byteSize}`);
+  reply.header("Content-Length", String(range.end - range.start + 1));
+  return reply.code(206).send(stream);
 }
 
 export async function mediaRoutes(app: FastifyInstance) {
@@ -144,8 +171,10 @@ export async function mediaRoutes(app: FastifyInstance) {
     if (link.item.releaseJobs.some((job) => job.status === "sent")) {
       throw new AppError(409, "ALREADY_DELIVERED", "Attachments cannot be removed after delivery.");
     }
+    const now = await currentInstant(app.prisma);
+    await revokeMediaShares(app.prisma, { mediaAssetId: assetId }, now);
     await app.storage.remove(link.asset.storageKey);
-    await app.prisma.mediaAsset.update({ where: { id: assetId }, data: { status: "deleted", deletedAt: new Date() } });
+    await app.prisma.mediaAsset.update({ where: { id: assetId }, data: { status: "deleted", deletedAt: now } });
     await app.prisma.itemMedia.delete({ where: { itemId_mediaAssetId: { itemId: id, mediaAssetId: assetId } } });
     return reply.code(204).send();
   });
@@ -162,8 +191,10 @@ export async function mediaRoutes(app: FastifyInstance) {
       entityType: "media_asset",
       entityId: asset.id,
     });
-    const stream = await app.storage.open(asset.storageKey);
-    return sendPrivateFile(reply, asset, stream);
+    const range = byteRange(request.headers.range, asset.byteSize);
+    if (range === "invalid") return reply.code(416).header("Content-Range", `bytes */${asset.byteSize}`).send();
+    const stream = await app.storage.open(asset.storageKey, range ?? undefined);
+    return sendPrivateFile(reply, asset, stream, range);
   });
 
   app.post(
@@ -176,7 +207,8 @@ export async function mediaRoutes(app: FastifyInstance) {
       const asset = await assetForUser(app, user.id, assetId);
       if (!asset) throw new AppError(404, "NOT_FOUND", "File not found.");
       const token = randomToken();
-      const expiresAt = new Date(Date.now() + env.SIGNED_URL_TTL_SECONDS * 1000);
+      const now = await currentInstant(app.prisma);
+      const expiresAt = new Date(now.getTime() + env.SIGNED_URL_TTL_SECONDS * 1000);
       await app.prisma.mediaAccessToken.create({
         data: { assetId: asset.id, userId: user.id, tokenHash: sha256(token), expiresAt },
       });
@@ -185,14 +217,17 @@ export async function mediaRoutes(app: FastifyInstance) {
   );
 
   app.get("/media/signed/:token", async (request, reply) => {
+    const user = await requireUser(request);
     const { token } = request.params as { token: string };
+    const now = await currentInstant(app.prisma);
     const row = await app.prisma.mediaAccessToken.findUnique({
       where: { tokenHash: sha256(token) },
       include: { asset: true },
     });
     if (
       !row ||
-      row.expiresAt.getTime() <= Date.now() ||
+      row.userId !== user.id ||
+      row.expiresAt.getTime() <= now.getTime() ||
       row.asset.ownerUserId !== row.userId ||
       row.asset.status !== "ready" ||
       row.asset.deletedAt
@@ -205,7 +240,65 @@ export async function mediaRoutes(app: FastifyInstance) {
       entityType: "media_asset",
       entityId: row.assetId,
     });
-    const stream = await app.storage.open(row.asset.storageKey);
-    return sendPrivateFile(reply, row.asset, stream);
+    const range = byteRange(request.headers.range, row.asset.byteSize);
+    if (range === "invalid") return reply.code(416).header("Content-Range", `bytes */${row.asset.byteSize}`).send();
+    const stream = await app.storage.open(row.asset.storageKey, range ?? undefined);
+    return sendPrivateFile(reply, row.asset, stream, range);
+  });
+
+  app.get("/memories/:id/shares", async (request) => {
+    const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Memory not found.");
+    const now = await currentInstant(app.prisma);
+    return { shares: await listMediaShares(app.prisma, user.id, id, now) };
+  });
+
+  app.post("/memories/:id/media/:assetId/shares", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const user = await requireUser(request);
+    const { id, assetId } = request.params as { id: string; assetId: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Memory not found.");
+    assertAssetId(assetId);
+    const parsed = z.object({
+      recipientId: z.string().uuid(),
+      expiresInHours: z.number().int().default(24),
+    }).safeParse(request.body ?? {});
+    if (!parsed.success) throw new AppError(400, "VALIDATION_ERROR", "Choose a recipient and a link lifetime.");
+    const now = await currentInstant(app.prisma);
+    const share = await createMediaShare(app.prisma, {
+      ownerUserId: user.id,
+      itemId: id,
+      assetId,
+      personId: parsed.data.recipientId,
+      expiresInHours: parsed.data.expiresInHours,
+      now,
+    });
+    return reply.code(201).send({ share, permittedHours: SHARE_EXPIRY_HOURS });
+  });
+
+  app.post("/memories/:id/media/:assetId/shares/refresh", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const user = await requireUser(request);
+    const { id, assetId } = request.params as { id: string; assetId: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "File not found.");
+    assertAssetId(assetId);
+    const now = await currentInstant(app.prisma);
+    const share = await refreshMediaShare(app.prisma, user.id, id, assetId, now);
+    return reply.code(201).send({ share });
+  });
+
+  app.post("/media/shares/:id/revoke", async (request) => {
+    const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) throw new AppError(404, "NOT_FOUND", "Link not found.");
+    const now = await currentInstant(app.prisma);
+    return { share: await revokeMediaShare(app.prisma, user.id, id, now) };
+  });
+
+  app.post("/media/shares/open", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request) => {
+    const user = await requireUser(request);
+    const parsed = z.object({ token: z.string().min(20).max(200) }).safeParse(request.body);
+    if (!parsed.success) throw new AppError(404, "NOT_FOUND", "This link is not valid.");
+    const now = await currentInstant(app.prisma);
+    return openMediaShare(app.prisma, user.id, parsed.data.token, now);
   });
 }

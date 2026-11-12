@@ -171,6 +171,7 @@ describe("automatic 30-day check-in", () => {
       status: "failed",
     });
     process.env.DIGI_EMAIL_FAIL = "false";
+    await setClock(new Date(cycle.dueAt.getTime() + 60_000));
     const retried = await runWorkerTick(app.prisma, { simulated: true });
     expect(retried.remindersSent).toBe(1);
     const rows = await app.prisma.notificationDelivery.findMany({ where: { templateId: "check_in_due", channel: "email" } });

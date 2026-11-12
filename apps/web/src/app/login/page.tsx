@@ -17,6 +17,11 @@ export default function LoginPage() {
     setError("");
     try {
       await api("/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      if (window.sessionStorage.getItem("digi-share-return") === "1") {
+        window.sessionStorage.removeItem("digi-share-return");
+        router.push("/share");
+        return;
+      }
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in.");

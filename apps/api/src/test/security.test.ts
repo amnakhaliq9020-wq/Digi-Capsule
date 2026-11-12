@@ -332,8 +332,10 @@ describe("account and data isolation", () => {
       expect(link.statusCode).toBe(200);
       const url = link.json().url as string;
       expect(url.startsWith("/v1/media/signed/")).toBe(true);
-      const open = await app.inject({ method: "GET", url });
+      const open = await app.inject({ method: "GET", url, headers: { cookie: author.cookie } });
       expect(open.statusCode).toBe(200);
+      const forwarded = await app.inject({ method: "GET", url });
+      expect(forwarded.statusCode).toBe(401);
       expect(open.headers["cache-control"]).toBe("private, no-store");
       await app.prisma.mediaAccessToken.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
       const expired = await app.inject({ method: "GET", url });

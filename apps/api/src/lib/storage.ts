@@ -7,7 +7,7 @@ import { env } from "../env";
 
 export interface StoragePort {
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
-  open(key: string): Promise<Readable>;
+  open(key: string, range?: { start: number; end: number }): Promise<Readable>;
   remove(key: string): Promise<void>;
 }
 
@@ -34,8 +34,8 @@ class LocalStorage implements StoragePort {
     await writeFile(full, body);
   }
 
-  async open(key: string): Promise<Readable> {
-    return createReadStream(this.full(key));
+  async open(key: string, range?: { start: number; end: number }): Promise<Readable> {
+    return createReadStream(this.full(key), range);
   }
 
   async remove(key: string): Promise<void> {
@@ -67,8 +67,12 @@ class S3Storage implements StoragePort {
     );
   }
 
-  async open(key: string): Promise<Readable> {
-    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
+  async open(key: string, range?: { start: number; end: number }): Promise<Readable> {
+    const result = await this.client.send(new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: safeKey(key),
+      Range: range ? `bytes=${range.start}-${range.end}` : undefined,
+    }));
     if (!result.Body) throw new Error("Empty object.");
     return result.Body as Readable;
   }

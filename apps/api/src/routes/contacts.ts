@@ -24,8 +24,9 @@ function present(person: {
   email: string | null;
   phone: string | null;
   relationship: string | null;
+  timeZone?: string | null;
   roles: { role: "recipient" | "trusted_contact" | "verifier"; channelVerifiedAt: Date | null; revokedAt: Date | null }[];
-}) {
+}, timeZone: string | null = person.timeZone ?? null) {
   const roles = person.roles.filter((role) => !role.revokedAt);
   return {
     id: person.id,
@@ -33,9 +34,17 @@ function present(person: {
     email: person.email,
     phone: person.phone,
     relationship: person.relationship,
+    timeZone,
     roles: roles.map((role) => role.role),
     emailVerified: roles.some((role) => role.channelVerifiedAt),
   };
+}
+
+async function zonesForLinkedUsers(prisma: FastifyInstance["prisma"], userIds: string[]) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (ids.length === 0) return new Map<string, string>();
+  const profiles = await prisma.profile.findMany({ where: { userId: { in: ids } }, select: { userId: true, timeZone: true } });
+  return new Map(profiles.map((profile) => [profile.userId, profile.timeZone]));
 }
 
 function assertContactId(id: string) {
@@ -50,7 +59,10 @@ export async function contactRoutes(app: FastifyInstance) {
       include: { roles: true },
       orderBy: { displayName: "asc" },
     });
-    return { contacts: people.map(present) };
+    const zones = await zonesForLinkedUsers(app.prisma, people.map((person) => person.linkedUserId || ""));
+    return {
+      contacts: people.map((person) => present(person, (person.linkedUserId && zones.get(person.linkedUserId)) || person.timeZone)),
+    };
   });
 
   app.post("/contacts", async (request, reply) => {
@@ -82,7 +94,8 @@ export async function contactRoutes(app: FastifyInstance) {
       include: { roles: true },
     });
     await audit(app.prisma, { actorUserId: user.id, action: "contact.created", entityType: "person", entityId: person.id });
-    return reply.code(201).send({ contact: present(person) });
+    const zones = await zonesForLinkedUsers(app.prisma, [person.linkedUserId || ""]);
+    return reply.code(201).send({ contact: present(person, (person.linkedUserId && zones.get(person.linkedUserId)) || person.timeZone) });
   });
 
   app.patch("/contacts/:id", async (request) => {
@@ -134,7 +147,8 @@ export async function contactRoutes(app: FastifyInstance) {
         include: { roles: true },
       });
     });
-    return { contact: present(person) };
+    const zones = await zonesForLinkedUsers(app.prisma, [person.linkedUserId || ""]);
+    return { contact: present(person, (person.linkedUserId && zones.get(person.linkedUserId)) || person.timeZone) };
   });
 
   app.delete("/contacts/:id", async (request, reply) => {
@@ -196,6 +210,7 @@ export async function contactRoutes(app: FastifyInstance) {
     ]);
     await audit(app.prisma, { actorUserId: user.id, action: "contact.email_verified", entityType: "person", entityId: person.id });
     const fresh = await app.prisma.person.findUniqueOrThrow({ where: { id: person.id }, include: { roles: true } });
-    return { contact: present(fresh) };
+    const zones = await zonesForLinkedUsers(app.prisma, [fresh.linkedUserId || ""]);
+    return { contact: present(fresh, (fresh.linkedUserId && zones.get(fresh.linkedUserId)) || fresh.timeZone) };
   });
 }

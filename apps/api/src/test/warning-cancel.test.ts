@@ -75,6 +75,7 @@ describe("warning cancellation", () => {
 
   it("retries a failed SMS without creating a second row", async () => {
     const author = await registerUser(app, "sms-retry@example.test", "SMS Author");
+    const firstNow = new Date("2026-08-02T09:00:00.000Z");
     process.env.DIGI_SMS_FAIL = "true";
     const failed = await deliverEmail(app.prisma, {
       to: "+15551234567",
@@ -85,9 +86,22 @@ describe("warning cancellation", () => {
       relatedType: "check_in_cycle",
       relatedId: author.body.user.id,
       userId: author.body.user.id,
+      now: firstNow,
     });
     expect(failed.status).toBe("failed");
     process.env.DIGI_SMS_FAIL = "false";
+    const early = await deliverEmail(app.prisma, {
+      to: "+15551234567",
+      channel: "sms",
+      templateId: "check_in_due",
+      variables: { channel: "sms", authorName: "SMS Author" },
+      idempotencyKey: "sms-retry-row",
+      relatedType: "check_in_cycle",
+      relatedId: author.body.user.id,
+      userId: author.body.user.id,
+      now: firstNow,
+    });
+    expect(early.status).toBe("failed");
     const retried = await deliverEmail(app.prisma, {
       to: "+15551234567",
       channel: "sms",
@@ -97,6 +111,7 @@ describe("warning cancellation", () => {
       relatedType: "check_in_cycle",
       relatedId: author.body.user.id,
       userId: author.body.user.id,
+      now: new Date(firstNow.getTime() + 60_000),
     });
     expect(retried.status).toBe("sent");
     expect(await app.prisma.notificationDelivery.count({ where: { idempotencyKey: "sms-retry-row" } })).toBe(1);

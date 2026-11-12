@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@digi/db";
+import { Prisma, type PrismaClient } from "@digi/db";
 import { CHECK_IN_INTERVAL_DAYS, REMINDER_OFFSETS_DAYS, UNREACHABLE_AFTER_DAYS } from "@digi/shared";
 import { nextDueAt, verificationReducer, type VerificationState } from "@digi/domain";
 import { audit } from "../lib/audit";
@@ -48,7 +48,7 @@ export async function recoverOpenReview(prisma: Writer, userId: string, at: Date
   });
   if (!open) return { recovered: false, cancelledJobIds: [] as string[] };
   const pending = await prisma.releaseJob.findMany({
-    where: { verificationCaseId: open.id, status: { in: ["pending", "sending", "failed"] } },
+    where: { verificationCaseId: open.id, status: { in: ["pending", "sending", "processing", "failed", "uncertain"] } },
   });
   const result = verificationReducer(open.state as VerificationState, {
     type: "author_authenticated",
@@ -117,11 +117,37 @@ async function applyConfirmation(
     where: {
       userId: input.userId,
       status: { in: ["queued", "pending", "processing", "failed"] },
-      templateId: { in: ["check_in_due", "check_in_reminder", "check_in_window_final", "check_in_escalation"] },
+      templateId: { in: ["check_in_due", "check_in_reminder", "check_in_window_final", "check_in_escalation", "simulated_conditional_release", "trusted_contact_unreachable"] },
     },
-    data: { status: "cancelled", cancelledAt: input.at, errorCode: "checked_in" },
+    data: { status: "cancelled", cancelledAt: input.at, errorCode: "checked_in", payload: Prisma.DbNull },
   });
   await tx.checkInConfirmationToken.deleteMany({ where: { userId: input.userId, usedAt: null } });
+  await tx.releaseJob.updateMany({
+    where: {
+      idempotencyKey: { startsWith: "test-check-in:" },
+      dispatchStartedAt: null,
+      status: { in: ["pending", "failed", "sending", "processing"] },
+      item: { capsule: { ownerUserId: input.userId } },
+    },
+    data: { status: "cancelled", cancelledAt: input.at, lastError: "checked_in", retryable: false },
+  });
+  const releasedByCheckIn = await tx.capsuleItem.findMany({
+    where: {
+      status: "released",
+      capsule: { ownerUserId: input.userId },
+      releaseRules: { some: { trigger: "after_verification" } },
+    },
+    include: { releaseJobs: { select: { status: true } } },
+  });
+  for (const item of releasedByCheckIn) {
+    const kept = item.releaseJobs.some((job) => job.status === "sent" || job.status === "delivered" || job.status === "uncertain");
+    if (kept) continue;
+    await tx.capsuleItem.update({ where: { id: item.id }, data: { status: "scheduled", releasedAt: null } });
+    await tx.releaseRule.updateMany({
+      where: { capsuleItemId: item.id, trigger: "after_verification", status: "completed" },
+      data: { status: "active" },
+    });
+  }
   const result = await recoverOpenReview(tx, input.userId, input.at);
   await audit(tx, {
     actorUserId: input.userId,

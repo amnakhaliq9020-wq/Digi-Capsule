@@ -1,8 +1,50 @@
 import { DateTime } from "luxon";
 
+/** Date-only deliveries use 9:00 a.m. when the sender does not choose another time. */
+export const DEFAULT_DELIVERY_LOCAL_TIME = "09:00";
+
+/**
+ * The widest real civil-time span, UTC−12 through UTC+14.
+ * The worker looks this far ahead so a time-zone change cannot hide a due delivery.
+ */
+export const DELIVERY_ZONE_LOOKAHEAD_MS = 26 * 60 * 60 * 1000;
+
+export function assertCalendarDate(localDate: string): void {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  if (!match) throw new Error("INVALID_LOCAL_TIME");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const civil = DateTime.fromObject({ year, month, day }, { zone: "utc" });
+  if (!civil.isValid || civil.year !== year || civil.month !== month || civil.day !== day) {
+    throw new Error("INVALID_LOCAL_TIME");
+  }
+}
+
 export function exactInstant(localDate: string, localTime: string, timeZone: string): Date {
+  assertCalendarDate(localDate);
   const resolved = resolveLocal(localDate, localTime, timeZone);
   return resolved.toUTC().toJSDate();
+}
+
+/** The same calendar day and local time, interpreted in each recipient's time zone. */
+export function calendarDeliveryInstants(
+  localDate: string,
+  localTime: string,
+  zones: { personId: string; timeZone: string }[],
+): { personId: string; timeZone: string; occursAt: Date }[] {
+  const time = localTime || DEFAULT_DELIVERY_LOCAL_TIME;
+  return zones.map((zone) => ({
+    personId: zone.personId,
+    timeZone: zone.timeZone,
+    occursAt: exactInstant(localDate, time, zone.timeZone),
+  }));
+}
+
+export function earliestDelivery(instants: Date[]): Date {
+  const first = instants[0];
+  if (!first) throw new Error("NO_OCCURRENCE");
+  return instants.reduce((soonest, instant) => (instant.getTime() < soonest.getTime() ? instant : soonest));
 }
 
 export function assertFutureInstant(instant: Date, now: Date): void {

@@ -44,6 +44,7 @@ export async function resetDatabase(app: FastifyInstance) {
       audit_events,
       email_verification_tokens,
       password_reset_tokens,
+      media_share_links,
       media_access_tokens,
       sessions,
       login_attempts,

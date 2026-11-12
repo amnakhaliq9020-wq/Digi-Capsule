@@ -1,8 +1,11 @@
-import type { PrismaClient } from "@digi/db";
+import { Prisma, type PrismaClient } from "@digi/db";
 import type { VerificationState as StoredVerificationState } from "@prisma/client";
 import {
   calendarJobKey,
+  memoryReadyKey,
   daysOverdue,
+  DELIVERY_ZONE_LOOKAHEAD_MS,
+  earliestDelivery,
   shouldNotifyTrustedContacts,
   shouldRecordSimulatedRelease,
   simulatedReleaseKey,
@@ -14,11 +17,14 @@ import {
 } from "@digi/domain";
 import { CANCELLATION_WINDOW_HOURS, MAX_RELEASE_ATTEMPTS, SIMULATED_RELEASE_AFTER_DAYS, UNREACHABLE_AFTER_DAYS } from "@digi/shared";
 import { isTestMode, isVerificationReleaseEnabled } from "../env";
+import { attemptBudgetExhausted, leaseMs, logDelivery, retryDelayMs } from "../lib/delivery-policy";
 import { decryptText } from "../lib/crypto";
 import { isUniqueViolation } from "../errors";
 import { currentInstant, readDeveloperClock } from "../lib/clock";
 import { deliverEmail } from "../lib/notify";
 import { sendDueCheckInNotices } from "./check-in-notices";
+import { purgeExpiredShareLinks } from "./media-shares";
+import { recipientTimeZones, zonedDelivery } from "./recipient-clock";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -27,27 +33,48 @@ function storedState(state: VerificationState): StoredVerificationState {
   return state;
 }
 
-export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?: boolean; ownerUserId?: string }) {
+export async function runWorkerTick(prisma: PrismaClient, options?: { simulated?: boolean; ownerUserId?: string; workerId?: string }) {
   const now = options?.simulated ? await readDeveloperClock(prisma) : await currentInstant(prisma);
   const ownerUserId = options?.ownerUserId;
-  const calendarJobsSent = await processCalendar(prisma, now, ownerUserId);
-  const { remindersSent, simulatedReleasesRecorded, confirmationEscalations } = await processReminders(prisma, now, ownerUserId);
+  const workerId = options?.workerId || `worker:${process.pid}`;
+  await recoverStuckDeliveries(prisma, now, workerId);
+  await purgeExpiredShareLinks(prisma, now);
+  const calendarJobsSent = await processCalendar(prisma, now, ownerUserId, workerId);
+  const { remindersSent, simulatedReleasesRecorded, confirmationEscalations } = await processReminders(prisma, now, ownerUserId, workerId);
   let verificationJobsSent = 0;
   if (isTestMode() || isVerificationReleaseEnabled()) {
     await advanceVerificationWindows(prisma, now, ownerUserId);
   }
   if (isVerificationReleaseEnabled()) {
-    verificationJobsSent = await processVerificationReleases(prisma, now, ownerUserId);
+    verificationJobsSent = await processVerificationReleases(prisma, now, ownerUserId, workerId);
   }
   return { now, calendarJobsSent, remindersSent, simulatedReleasesRecorded, verificationJobsSent, confirmationEscalations };
 }
 
-async function processCalendar(prisma: PrismaClient, now: Date, ownerUserId?: string) {
+async function cancelSupersededJobs(prisma: PrismaClient, now: Date, workerId: string) {
+  await prisma.$executeRaw`
+    UPDATE release_jobs AS job
+    SET status = 'cancelled',
+        cancelled_at = ${now},
+        last_error = 'superseded',
+        retryable = false,
+        worker_id = ${workerId}
+    FROM capsule_items AS item
+    WHERE job.capsule_item_id = item.id
+      AND job.schedule_generation <> item.schedule_generation
+      AND job.status IN ('pending', 'failed', 'sending', 'processing')
+      AND job.dispatch_started_at IS NULL
+  `;
+}
+
+async function processCalendar(prisma: PrismaClient, now: Date, ownerUserId?: string, workerId = `worker:${process.pid}`) {
+  await cancelSupersededJobs(prisma, now, workerId);
+  const horizon = new Date(now.getTime() + DELIVERY_ZONE_LOOKAHEAD_MS);
   const rules = await prisma.releaseRule.findMany({
     where: {
       status: "active",
       trigger: "exact_time",
-      nextRunAt: { lte: now },
+      nextRunAt: { lte: horizon },
       ...(ownerUserId ? { item: { capsule: { ownerUserId } } } : {}),
     },
     include: {
@@ -61,37 +88,63 @@ async function processCalendar(prisma: PrismaClient, now: Date, ownerUserId?: st
   });
   let sent = 0;
   for (const rule of rules) {
-    if (!rule.nextRunAt || rule.item.status === "cancelled" || rule.item.status === "released") continue;
-    for (const grant of rule.item.grants) {
-      if (!grant.person.email) continue;
-      const key = calendarJobKey(rule.item.id, grant.person.id, rule.nextRunAt.toISOString());
+    const freshRule = await prisma.releaseRule.findUnique({ where: { id: rule.id } });
+    if (!freshRule || freshRule.status !== "active" || freshRule.trigger !== "exact_time") continue;
+    if (!freshRule.localDate || !freshRule.localTime || !freshRule.nextRunAt) continue;
+    const freshItem = await prisma.capsuleItem.findUnique({ where: { id: rule.item.id } });
+    if (!freshItem || freshItem.status === "cancelled" || freshItem.status === "released") continue;
+    const zones = await recipientTimeZones(prisma, rule.item.grants.map((grant) => grant.person), freshRule.timeZone);
+    const plans = rule.item.grants.flatMap((grant) => {
+      const timeZone = zones.get(grant.person.id) || freshRule.timeZone;
+      try {
+        return [{ grant, occursAt: zonedDelivery(freshRule.localDate!, freshRule.localTime!, timeZone) }];
+      } catch {
+        return [];
+      }
+    });
+    for (const plan of plans) {
+      if (!plan.grant.person.email || plan.occursAt.getTime() > now.getTime()) continue;
+      const stillActive = await prisma.releaseRule.findUnique({ where: { id: rule.id }, select: { status: true } });
+      if (stillActive?.status !== "active") break;
+      const key = calendarJobKey(rule.item.id, plan.grant.person.id, plan.occursAt.toISOString(), freshItem.scheduleGeneration);
       const didSend = await sendMemoryJob(prisma, {
         idempotencyKey: key,
         releaseRuleId: rule.id,
         verificationCaseId: null,
         capsuleItemId: rule.item.id,
-        personId: grant.person.id,
-        occurrenceAt: rule.nextRunAt,
-        to: grant.person.email,
+        personId: plan.grant.person.id,
+        occurrenceAt: plan.occursAt,
+        to: plan.grant.person.email,
         authorName: rule.item.capsule.owner.profile?.displayName || "Someone",
+        scheduleGeneration: freshItem.scheduleGeneration,
+        now,
+        workerId,
       });
       if (didSend) sent += 1;
     }
-    const jobs = await prisma.releaseJob.findMany({ where: { releaseRuleId: rule.id } });
-    const activeGrants = rule.item.grants.length;
-    const sentJobs = jobs.filter((job) => job.status === "sent");
-    if (activeGrants > 0 && sentJobs.length >= activeGrants) {
+    const jobs = await prisma.releaseJob.findMany({ where: { capsuleItemId: rule.item.id, status: "sent" } });
+    const sentPeople = new Set(jobs.map((job) => job.personId));
+    const emailGrants = rule.item.grants.filter((grant) => grant.person.email);
+    const pending = plans.filter((plan) => plan.grant.person.email && !sentPeople.has(plan.grant.person.id));
+    if (emailGrants.length > 0 && pending.length === 0) {
       await prisma.releaseRule.update({ where: { id: rule.id }, data: { status: "completed", nextRunAt: null } });
       await prisma.capsuleItem.update({
         where: { id: rule.item.id },
         data: { status: "released", releasedAt: now },
       });
+      continue;
+    }
+    if (pending.length > 0) {
+      const next = earliestDelivery(pending.map((plan) => plan.occursAt));
+      if (freshRule.nextRunAt.getTime() !== next.getTime()) {
+        await prisma.releaseRule.update({ where: { id: rule.id }, data: { nextRunAt: next } });
+      }
     }
   }
   return sent;
 }
 
-async function processVerificationReleases(prisma: PrismaClient, now: Date, ownerUserId?: string) {
+async function processVerificationReleases(prisma: PrismaClient, now: Date, ownerUserId?: string, workerId = `worker:${process.pid}`) {
   const cases = await prisma.verificationCase.findMany({
     where: {
       ...(ownerUserId ? { subjectUserId: ownerUserId } : {}),
@@ -123,6 +176,7 @@ async function processVerificationReleases(prisma: PrismaClient, now: Date, owne
     for (const rule of rules) {
       for (const grant of rule.item.grants) {
         if (!grant.person.email) continue;
+        const currentItem = await prisma.capsuleItem.findUnique({ where: { id: rule.item.id }, select: { scheduleGeneration: true } });
         const key = verificationJobKey(fresh.id, rule.item.id, grant.person.id);
         const didSend = await sendMemoryJob(prisma, {
           idempotencyKey: key,
@@ -133,8 +187,11 @@ async function processVerificationReleases(prisma: PrismaClient, now: Date, owne
           occurrenceAt: now,
           to: grant.person.email,
           authorName: rule.item.capsule.owner.profile?.displayName || "Someone",
+          scheduleGeneration: currentItem?.scheduleGeneration ?? rule.item.scheduleGeneration,
+          now,
+          workerId,
         });
-        if (didSend) sent += 1;
+      if (didSend) sent += 1;
       }
       const jobs = await prisma.releaseJob.findMany({
         where: { verificationCaseId: fresh.id, capsuleItemId: rule.item.id },
@@ -172,6 +229,90 @@ async function processVerificationReleases(prisma: PrismaClient, now: Date, owne
   return sent;
 }
 
+export async function recoverStuckDeliveries(prisma: PrismaClient, now: Date, workerId: string) {
+  const staleBefore = new Date(now.getTime() - leaseMs());
+  const safe = await prisma.releaseJob.updateMany({
+    where: { status: { in: ["sending", "processing"] }, dispatchStartedAt: null, claimedAt: { lt: staleBefore } },
+    data: { status: "pending", workerId, lastError: "claim_expired_before_dispatch" },
+  });
+  const uncertain = await prisma.releaseJob.updateMany({
+    where: {
+      status: { in: ["sending", "processing"] },
+      dispatchStartedAt: { not: null },
+      providerMessageId: null,
+      claimedAt: { lt: staleBefore },
+    },
+    data: { status: "uncertain", workerId, lastError: "dispatch_unconfirmed", retryable: false },
+  });
+  const requeuedNotices = await prisma.notificationDelivery.updateMany({
+    where: { status: "processing", dispatchStartedAt: null, claimedAt: { lt: staleBefore } },
+    data: { status: "pending", workerId, errorCode: "claim_expired_before_dispatch" },
+  });
+  const notices = await prisma.notificationDelivery.updateMany({
+    where: {
+      status: "processing",
+      dispatchStartedAt: { not: null },
+      providerMessageId: null,
+      claimedAt: { lt: staleBefore },
+    },
+    data: {
+      status: "uncertain",
+      workerId,
+      errorCode: "dispatch_unconfirmed",
+      retryable: false,
+      providerResponse: "timeout_after_possible_acceptance",
+      payload: Prisma.DbNull,
+    },
+  });
+  if (safe.count || uncertain.count || notices.count || requeuedNotices.count) {
+    logDelivery({
+      event: "recover",
+      workerId,
+      requeued: safe.count + requeuedNotices.count,
+      uncertainJobs: uncertain.count,
+      uncertainNotices: notices.count,
+    });
+  }
+}
+
+const OPEN_CHECK_IN = ["due", "reminded", "missed_unreachable"] as const;
+
+function testReleaseCycleId(idempotencyKey: string): string | null {
+  const match = /^test-check-in:([0-9a-f-]{36}):/i.exec(idempotencyKey);
+  return match?.[1] ?? null;
+}
+
+async function testReleaseStillOpen(tx: Prisma.TransactionClient, idempotencyKey: string) {
+  const cycleId = testReleaseCycleId(idempotencyKey);
+  if (!cycleId) return true;
+  const cycle = await tx.checkInCycle.findUnique({ where: { id: cycleId }, select: { state: true } });
+  return Boolean(cycle && OPEN_CHECK_IN.includes(cycle.state as (typeof OPEN_CHECK_IN)[number]));
+}
+
+async function deliveryStillCurrent(
+  tx: Prisma.TransactionClient,
+  input: { capsuleItemId: string; releaseRuleId: string; personId: string; scheduleGeneration: number; occurrenceAt: Date; now: Date },
+) {
+  const item = await tx.capsuleItem.findUnique({ where: { id: input.capsuleItemId } });
+  const rule = await tx.releaseRule.findUnique({ where: { id: input.releaseRuleId } });
+  const grant = await tx.itemGrant.findFirst({
+    where: { capsuleItemId: input.capsuleItemId, personId: input.personId, revokedAt: null, visibility: "released_only" },
+  });
+  const person = await tx.person.findUnique({ where: { id: input.personId }, select: { email: true } });
+  const current = Boolean(
+    item
+    && item.status === "scheduled"
+    && item.scheduleGeneration === input.scheduleGeneration
+    && rule
+    && rule.status === "active"
+    && rule.capsuleItemId === input.capsuleItemId
+    && grant
+    && person?.email
+    && input.occurrenceAt.getTime() <= input.now.getTime(),
+  );
+  return { current, item };
+}
+
 async function sendMemoryJob(
   prisma: PrismaClient,
   input: {
@@ -183,71 +324,227 @@ async function sendMemoryJob(
     occurrenceAt: Date;
     to: string;
     authorName: string;
+    scheduleGeneration: number;
+    now?: Date;
+    workerId?: string;
   },
 ) {
-  let job = await prisma.releaseJob.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
-  if (!job) {
-    try {
-      job = await prisma.releaseJob.create({
-        data: {
-          idempotencyKey: input.idempotencyKey,
-          releaseRuleId: input.releaseRuleId,
-          verificationCaseId: input.verificationCaseId,
+  const now = input.now ?? new Date();
+  const workerId = input.workerId || `worker:${process.pid}`;
+  const noticeKey = memoryReadyKey(input.capsuleItemId, input.personId, input.occurrenceAt.toISOString(), input.scheduleGeneration);
+  const claimed = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM capsule_items WHERE id = ${input.capsuleItemId}::uuid FOR UPDATE`;
+    const gate = await deliveryStillCurrent(tx, { ...input, now });
+    const releaseOpen = await testReleaseStillOpen(tx, input.idempotencyKey);
+    if (!gate.current || !releaseOpen) {
+      await tx.releaseJob.updateMany({
+        where: {
           capsuleItemId: input.capsuleItemId,
           personId: input.personId,
-          occurrenceAt: input.occurrenceAt,
-          status: "pending",
+          scheduleGeneration: input.scheduleGeneration,
+          status: { in: ["pending", "failed", "sending", "processing"] },
+          dispatchStartedAt: null,
+        },
+        data: { status: "cancelled", cancelledAt: now, workerId, lastError: "superseded", retryable: false },
+      });
+      return null;
+    }
+    const blocking = await tx.releaseJob.findFirst({
+      where: {
+        capsuleItemId: input.capsuleItemId,
+        personId: input.personId,
+        occurrenceAt: input.occurrenceAt,
+        status: { notIn: ["cancelled", "dead"] },
+      },
+    });
+    if (blocking && blocking.scheduleGeneration !== input.scheduleGeneration) {
+      if (blocking.dispatchStartedAt || blocking.status === "sent" || blocking.status === "delivered" || blocking.status === "uncertain") return null;
+      await tx.releaseJob.update({
+        where: { id: blocking.id },
+        data: { status: "cancelled", cancelledAt: now, workerId, lastError: "superseded", retryable: false },
+      });
+    }
+    let job = await tx.releaseJob.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+    if (!job) {
+      try {
+        job = await tx.releaseJob.create({
+          data: {
+            idempotencyKey: input.idempotencyKey,
+            releaseRuleId: input.releaseRuleId,
+            verificationCaseId: input.verificationCaseId,
+            capsuleItemId: input.capsuleItemId,
+            personId: input.personId,
+            occurrenceAt: input.occurrenceAt,
+            scheduleGeneration: input.scheduleGeneration,
+            status: "pending",
+          },
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        job = await tx.releaseJob.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+      }
+    }
+    if (!job || job.scheduleGeneration !== input.scheduleGeneration) return null;
+    if (job.status === "sent" || job.status === "delivered" || job.status === "dead" || job.status === "uncertain" || job.status === "cancelled") return null;
+    if (job.status === "failed" && (!job.retryable || (job.nextAttemptAt && job.nextAttemptAt.getTime() > now.getTime()))) return null;
+    if (attemptBudgetExhausted(job.attemptCount) && job.status !== "pending") {
+      await tx.releaseJob.update({ where: { id: job.id }, data: { status: "dead", retryable: false, lastError: "attempt_budget", workerId } });
+      return null;
+    }
+    const updated = await tx.releaseJob.updateMany({
+      where: { id: job.id, status: { in: ["pending", "failed"] }, scheduleGeneration: input.scheduleGeneration },
+      data: { status: "processing", attemptCount: { increment: 1 }, claimedAt: now, workerId, lastError: null, nextAttemptAt: null, dispatchStartedAt: now },
+    });
+    if (updated.count !== 1) return null;
+    const fresh = await tx.releaseJob.findUniqueOrThrow({ where: { id: job.id } });
+    return { id: fresh.id, attemptCount: fresh.attemptCount };
+  });
+  if (!claimed) return false;
+  logDelivery({
+    event: "memory_dispatch",
+    jobId: claimed.id,
+    idempotencyKey: input.idempotencyKey,
+    memoryId: input.capsuleItemId,
+    recipientId: input.personId,
+    attempt: claimed.attemptCount,
+    workerId,
+  });
+  const packaged = isTestMode() ? await testDeliveryCopy(prisma, input.capsuleItemId) : null;
+  const notice = await deliverEmail(prisma, {
+    to: input.to,
+    templateId: "memory_ready",
+    variables: {
+      authorName: input.authorName,
+      itemId: input.capsuleItemId,
+      personId: input.personId,
+      summary: "A memory is ready for them.",
+      ...(packaged ? { title: packaged.title, letter: packaged.letter, files: packaged.files } : {}),
+    },
+    idempotencyKey: noticeKey,
+    relatedType: "release_job",
+    relatedId: claimed.id,
+    now,
+    workerId,
+  });
+  if (notice.status === "sent" || notice.status === "delivered") {
+    const granted = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM capsule_items WHERE id = ${input.capsuleItemId}::uuid FOR UPDATE`;
+      const gate = await deliveryStillCurrent(tx, { ...input, now });
+      const releaseOpen = await testReleaseStillOpen(tx, input.idempotencyKey);
+      if (!gate.current || !releaseOpen) {
+        await tx.releaseJob.update({
+          where: { id: claimed.id },
+          data: {
+            status: "cancelled",
+            cancelledAt: now,
+            providerMessageId: notice.providerMessageId,
+            providerResponse: "accepted_then_superseded",
+            workerId,
+            lastError: "cancelled_after_acceptance",
+            retryable: false,
+          },
+        });
+        return false;
+      }
+      await tx.releaseJob.update({
+        where: { id: claimed.id },
+        data: {
+          status: "sent",
+          sentAt: now,
+          providerMessageId: notice.providerMessageId,
+          providerResponse: "provider_accepted_not_inbox_delivery",
+          workerId,
+          lastError: null,
         },
       });
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      job = await prisma.releaseJob.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
-    }
+      return true;
+    });
+    if (!granted) return false;
+    logDelivery({
+      event: "memory_accepted",
+      jobId: claimed.id,
+      idempotencyKey: input.idempotencyKey,
+      memoryId: input.capsuleItemId,
+      recipientId: input.personId,
+      attempt: claimed.attemptCount,
+      workerId,
+      providerMessageId: notice.providerMessageId,
+      status: "sent",
+    });
+    return !notice.replayed;
   }
-  if (!job || job.status === "sent" || job.status === "cancelled" || job.status === "dead") return false;
-  const packaged = isTestMode() ? await testDeliveryCopy(prisma, input.capsuleItemId) : null;
-  if (job.attemptCount >= MAX_RELEASE_ATTEMPTS) {
-    await prisma.releaseJob.update({ where: { id: job.id }, data: { status: "dead" } });
+  if (notice.status === "uncertain") {
+    await prisma.releaseJob.update({
+      where: { id: claimed.id },
+      data: { status: "uncertain", retryable: false, workerId, lastError: "dispatch_unconfirmed", providerResponse: "timeout_after_possible_acceptance" },
+    });
     return false;
   }
-  const claimed = await prisma.releaseJob.updateMany({
-    where: { id: job.id, status: { in: ["pending", "failed"] } },
-    data: { status: "sending", attemptCount: { increment: 1 } },
+  if (notice.status === "bounced" || notice.status === "cancelled") {
+    await prisma.releaseJob.update({
+      where: { id: claimed.id },
+      data: { status: notice.status === "cancelled" ? "cancelled" : "dead", retryable: false, workerId, lastError: notice.status, cancelledAt: notice.status === "cancelled" ? now : null },
+    });
+    return false;
+  }
+  await prisma.releaseJob.updateMany({
+    where: { id: claimed.id, status: "processing" },
+    data: {
+      status: "failed",
+      retryable: true,
+      workerId,
+      lastError: "temporary_failure",
+      nextAttemptAt: new Date(now.getTime() + retryDelayMs(claimed.attemptCount)),
+      dispatchStartedAt: null,
+    },
   });
-  if (claimed.count !== 1) return false;
-  try {
-    const notice = await deliverEmail(prisma, {
-      to: input.to,
-      templateId: "memory_ready",
-      variables: {
-        authorName: input.authorName,
-        itemId: input.capsuleItemId,
-        personId: input.personId,
-        summary: "A memory is ready for them.",
-        ...(packaged
-          ? { title: packaged.title, letter: packaged.letter, files: packaged.files }
-          : {}),
-      },
-      idempotencyKey: `job:${job.id}:memory_ready`,
-      relatedType: "release_job",
-      relatedId: job.id,
+  return false;
+}
+
+async function retryTestCheckInReleases(prisma: PrismaClient, cycleId: string, now: Date, workerId: string) {
+  const jobs = await prisma.releaseJob.findMany({
+    where: {
+      idempotencyKey: { startsWith: `test-check-in:${cycleId}:` },
+      status: { in: ["pending", "failed"] },
+    },
+    include: {
+      person: true,
+      item: { include: { capsule: { include: { owner: { include: { profile: true } } } }, grants: { where: { revokedAt: null, visibility: "released_only" }, include: { person: true } }, releaseRules: true } },
+    },
+  });
+  for (const job of jobs) {
+    if (!job.person.email || !job.releaseRuleId) continue;
+    if (job.status === "failed" && (!job.retryable || (job.nextAttemptAt && job.nextAttemptAt.getTime() > now.getTime()))) continue;
+    await sendMemoryJob(prisma, {
+      idempotencyKey: job.idempotencyKey,
+      releaseRuleId: job.releaseRuleId,
+      verificationCaseId: job.verificationCaseId,
+      capsuleItemId: job.capsuleItemId,
+      personId: job.personId,
+      occurrenceAt: job.occurrenceAt,
+      to: job.person.email,
+      authorName: job.item.capsule.owner.profile?.displayName || "Someone",
+      scheduleGeneration: job.scheduleGeneration,
+      now,
+      workerId,
     });
-    await prisma.releaseJob.update({
-      where: { id: job.id },
-      data: { status: "sent", sentAt: new Date(), providerMessageId: notice.id },
-    });
-    return true;
-  } catch (error) {
-    await prisma.releaseJob.update({
-      where: { id: job.id },
-      data: { status: "failed" },
-    });
-    console.error("[worker] delivery failed", error instanceof Error ? error.message : "unknown");
-    return false;
+  }
+  const itemIds = [...new Set(jobs.map((job) => job.capsuleItemId))];
+  for (const itemId of itemIds) {
+    const item = jobs.find((job) => job.capsuleItemId === itemId)?.item;
+    if (!item || item.status !== "scheduled") continue;
+    const rule = item.releaseRules.find((entry) => entry.trigger === "after_verification" && entry.status === "active");
+    if (!rule) continue;
+    const sentJobs = await prisma.releaseJob.count({ where: { capsuleItemId: itemId, status: "sent" } });
+    const emailGrants = item.grants.filter((grant) => grant.person.email);
+    if (emailGrants.length > 0 && sentJobs >= emailGrants.length) {
+      await prisma.capsuleItem.update({ where: { id: itemId }, data: { status: "released", releasedAt: now } });
+      await prisma.releaseRule.update({ where: { id: rule.id }, data: { status: "completed", nextRunAt: null } });
+    }
   }
 }
 
-async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: string) {
+async function processReminders(prisma: PrismaClient, now: Date, ownerUserId: string | undefined, workerId: string) {
   const cycles = await prisma.checkInCycle.findMany({
     where: {
       state: { in: ["due", "reminded", "missed_unreachable"] },
@@ -265,53 +562,80 @@ async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: s
   for (const cycle of cycles) {
     const policy = cycle.user.checkInPolicy;
     if (!policy || !cycle.user.email) continue;
-    const notices = await sendDueCheckInNotices(prisma, cycle.id, now);
+    const notices = await sendDueCheckInNotices(prisma, cycle.id, now, workerId);
     sent += notices.remindersSent;
     confirmationEscalations += notices.confirmationEscalations;
-    const simulatedAlready = cycle.events.some((event) => event.type === "simulated_release_recorded");
+    const fresh = await prisma.checkInCycle.findUnique({
+      where: { id: cycle.id },
+      include: { events: true, user: { include: { checkInPolicy: true, profile: true } } },
+    });
+    const freshPolicy = fresh?.user.checkInPolicy;
+    if (!fresh || !freshPolicy || !fresh.user.email || !OPEN_CHECK_IN.includes(fresh.state as (typeof OPEN_CHECK_IN)[number])) continue;
+    const paused = freshPolicy.pausedUntil !== null && freshPolicy.pausedUntil.getTime() > now.getTime();
+    const simulatedAlready = fresh.events.some((event) => event.type === "simulated_release_recorded");
     if (
+      !paused &&
       isTestMode() &&
       shouldRecordSimulatedRelease({
-        dueAt: cycle.dueAt,
+        dueAt: fresh.dueAt,
         now,
         alreadyRecorded: simulatedAlready,
-        pausedUntil: policy.pausedUntil,
+        pausedUntil: freshPolicy.pausedUntil,
       })
     ) {
       const notice = await deliverEmail(prisma, {
-        to: cycle.user.email,
+        to: fresh.user.email,
         templateId: "simulated_conditional_release",
-        variables: { authorName: cycle.user.profile?.displayName || "there" },
-        idempotencyKey: simulatedReleaseKey(cycle.id),
+        variables: { authorName: fresh.user.profile?.displayName || "there" },
+        idempotencyKey: simulatedReleaseKey(fresh.id),
         relatedType: "check_in_cycle",
-        relatedId: cycle.id,
+        relatedId: fresh.id,
+        userId: fresh.userId,
+        generation: freshPolicy.warningGeneration,
+        now,
+        workerId,
       });
       if ((notice.status === "queued" || notice.status === "sent") && !simulatedAlready && notice.providerMessageId) {
-        await deliverTestCheckInMemories(prisma, cycle.id, cycle.userId, now);
-        await prisma.checkInEvent.create({
-          data: {
-            cycleId: cycle.id,
-            type: "simulated_release_recorded",
-            offsetDays: SIMULATED_RELEASE_AFTER_DAYS,
-            at: now,
-            notificationId: notice.id,
-          },
-        });
-        simulatedReleasesRecorded += 1;
+        const stillOpen = await prisma.checkInCycle.findUnique({ where: { id: fresh.id }, select: { state: true } });
+        if (stillOpen && OPEN_CHECK_IN.includes(stillOpen.state as (typeof OPEN_CHECK_IN)[number])) {
+          await deliverTestCheckInMemories(prisma, fresh.id, fresh.userId, now);
+          try {
+            await prisma.checkInEvent.create({
+              data: {
+                cycleId: fresh.id,
+                type: "simulated_release_recorded",
+                offsetDays: SIMULATED_RELEASE_AFTER_DAYS,
+                at: now,
+                notificationId: notice.id,
+              },
+            });
+            simulatedReleasesRecorded += 1;
+          } catch (error) {
+            if (!isUniqueViolation(error)) throw error;
+          }
+        }
       }
     }
-    const unreachableAlready = cycle.events.some((event) => event.type === "unreachable_notice_sent");
+    const afterRelease = await prisma.checkInCycle.findUnique({ where: { id: fresh.id }, include: { events: true } });
+    if (isTestMode() && !paused && afterRelease && OPEN_CHECK_IN.includes(afterRelease.state as (typeof OPEN_CHECK_IN)[number])) {
+      if (afterRelease.events.some((event) => event.type === "simulated_release_recorded")) {
+        await retryTestCheckInReleases(prisma, fresh.id, now, workerId);
+      }
+    }
+    const unreachableAlready = fresh.events.some((event) => event.type === "unreachable_notice_sent")
+      || Boolean(afterRelease?.events.some((event) => event.type === "unreachable_notice_sent"));
     if (
+      !paused &&
       shouldNotifyTrustedContacts({
-        dueAt: cycle.dueAt,
+        dueAt: fresh.dueAt,
         now,
         alreadySent: unreachableAlready,
-        pausedUntil: policy.pausedUntil,
+        pausedUntil: freshPolicy.pausedUntil,
       })
     ) {
       const contacts = await prisma.person.findMany({
         where: {
-          ownerUserId: cycle.userId,
+          ownerUserId: fresh.userId,
           roles: { some: { role: "trusted_contact", revokedAt: null, channelVerifiedAt: { not: null } } },
         },
       });
@@ -320,16 +644,31 @@ async function processReminders(prisma: PrismaClient, now: Date, ownerUserId?: s
         await deliverEmail(prisma, {
           to: contact.email,
           templateId: "trusted_contact_unreachable",
-          variables: { authorName: cycle.user.profile?.displayName || "The author" },
-          idempotencyKey: unreachableNoticeKey(cycle.id, contact.id),
+          variables: { authorName: fresh.user.profile?.displayName || "The author" },
+          idempotencyKey: unreachableNoticeKey(fresh.id, contact.id),
           relatedType: "check_in_cycle",
-          relatedId: cycle.id,
+          relatedId: fresh.id,
+          userId: fresh.userId,
+          generation: freshPolicy.warningGeneration,
+          now,
+          workerId,
         });
       }
-      await prisma.checkInEvent.create({
-        data: { cycleId: cycle.id, type: "unreachable_notice_sent", offsetDays: UNREACHABLE_AFTER_DAYS, at: now },
-      });
-      await prisma.checkInCycle.update({ where: { id: cycle.id }, data: { state: "missed_unreachable" } });
+      try {
+        await prisma.$transaction(async (tx) => {
+          const current = await tx.checkInCycle.findUnique({ where: { id: fresh.id }, select: { state: true } });
+          if (!current || !OPEN_CHECK_IN.includes(current.state as (typeof OPEN_CHECK_IN)[number])) return;
+          await tx.checkInEvent.create({
+            data: { cycleId: fresh.id, type: "unreachable_notice_sent", offsetDays: UNREACHABLE_AFTER_DAYS, at: now },
+          });
+          await tx.checkInCycle.updateMany({
+            where: { id: fresh.id, state: { in: [...OPEN_CHECK_IN] } },
+            data: { state: "missed_unreachable" },
+          });
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+      }
     }
   }
   return { remindersSent: sent, simulatedReleasesRecorded, confirmationEscalations };
@@ -416,6 +755,8 @@ async function deliverTestCheckInMemories(prisma: PrismaClient, cycleId: string,
         occurrenceAt: now,
         to: grant.person.email,
         authorName: rule.item.capsule.owner.profile?.displayName || "Someone",
+        scheduleGeneration: rule.item.scheduleGeneration,
+        now,
       });
     }
     const jobs = await prisma.releaseJob.findMany({ where: { releaseRuleId: rule.id, status: "sent" } });
