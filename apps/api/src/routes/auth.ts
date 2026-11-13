@@ -11,6 +11,7 @@ import {
   VERIFICATION_EMAIL_WINDOW_MINUTES,
 } from "@digi/shared";
 import { clearSessionCookie, requireUser, setSessionCookie } from "../auth";
+import { opsLog } from "../lib/ops-log";
 import { env, isTestMode } from "../env";
 import { AppError, fromZod, isUniqueViolation } from "../errors";
 import { audit } from "../lib/audit";
@@ -32,6 +33,24 @@ const registerSchema = z.object({
   password: passwordSchema,
   timeZone: z.string().trim().min(1, "Choose a time zone."),
 });
+
+const accessibilitySchema = z.object({
+  colorVision: z.enum(["default", "protanopia", "deuteranopia", "tritanopia", "achromatopsia"]),
+  highContrast: z.boolean(),
+  largeText: z.boolean(),
+  reducedMotion: z.boolean(),
+});
+
+function publicProfile(user: { id: string; email: string; displayName: string; emailVerifiedAt: Date | null }, timeZone: string, accessibility: unknown) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    timeZone,
+    emailVerified: Boolean(user.emailVerifiedAt),
+    accessibility,
+  };
+}
 
 const loginSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
@@ -112,12 +131,16 @@ export async function authRoutes(app: FastifyInstance) {
       where: { email, success: false, createdAt: { gt: since } },
     });
     if (failures >= LOGIN_MAX_FAILURES) {
+      request.log.warn({ event: "auth.failure", code: "RATE_LIMITED", requestId: request.id }, "sign-in rejected");
+      opsLog("warn", "auth.failure", { code: "RATE_LIMITED", requestId: request.id });
       throw new AppError(429, "RATE_LIMITED", "Too many sign-in attempts. Try again in 15 minutes.");
     }
     const user = await app.prisma.user.findUnique({ where: { email }, include: { profile: true } });
     const valid = await verifyAgainstStoredHash(user?.passwordHash ?? null, parsed.data.password);
     await app.prisma.loginAttempt.create({ data: { email, success: Boolean(valid && user) } });
     if (!user || !valid || !user.profile) {
+      request.log.warn({ event: "auth.failure", code: "INVALID_CREDENTIALS", requestId: request.id }, "sign-in rejected");
+      opsLog("warn", "auth.failure", { code: "INVALID_CREDENTIALS", requestId: request.id });
       throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
     }
     const sessionToken = randomToken();
@@ -155,33 +178,29 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get("/auth/me", async (request) => {
     const user = await requireUser(request);
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        timeZone: user.timeZone,
-        emailVerified: Boolean(user.emailVerifiedAt),
-      },
-    };
+    const profile = await app.prisma.profile.findUniqueOrThrow({ where: { userId: user.id } });
+    return { user: publicProfile(user, profile.timeZone, profile.accessibility) };
   });
 
   app.patch("/auth/me", async (request) => {
     const user = await requireUser(request);
-    const parsed = z.object({ timeZone: z.string().trim().min(1, "Choose a time zone.") }).safeParse(request.body);
+    const parsed = z.object({
+      timeZone: z.string().trim().min(1, "Choose a time zone.").optional(),
+      accessibility: accessibilitySchema.optional(),
+    }).refine((value) => value.timeZone || value.accessibility, { message: "Nothing to save." }).safeParse(request.body);
     if (!parsed.success) throw fromZod(parsed.error);
-    assertTimeZone(parsed.data.timeZone);
-    await app.prisma.profile.update({ where: { userId: user.id }, data: { timeZone: parsed.data.timeZone } });
-    await audit(app.prisma, { actorUserId: user.id, action: "profile.timezone_updated", entityType: "user", entityId: user.id });
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        timeZone: parsed.data.timeZone,
-        emailVerified: Boolean(user.emailVerifiedAt),
+    if (parsed.data.timeZone) assertTimeZone(parsed.data.timeZone);
+    const profile = await app.prisma.profile.update({
+      where: { userId: user.id },
+      data: {
+        ...(parsed.data.timeZone ? { timeZone: parsed.data.timeZone } : {}),
+        ...(parsed.data.accessibility ? { accessibility: parsed.data.accessibility } : {}),
       },
-    };
+    });
+    if (parsed.data.timeZone) {
+      await audit(app.prisma, { actorUserId: user.id, action: "profile.timezone_updated", entityType: "user", entityId: user.id });
+    }
+    return { user: publicProfile(user, profile.timeZone, profile.accessibility) };
   });
 
   app.post("/auth/verify-email", async (request) => {

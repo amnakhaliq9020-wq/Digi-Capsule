@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
@@ -13,6 +13,23 @@ for (let i = 0; i < 6; i += 1) {
 }
 for (const file of found.reverse()) {
   process.loadEnvFile(file);
+}
+
+if (process.env.APP_ENV === "staging") {
+  let stagingDir = process.cwd();
+  for (let i = 0; i < 6; i += 1) {
+    const candidate = path.join(stagingDir, ".env.staging");
+    if (existsSync(candidate)) {
+      for (const line of readFileSync(candidate, "utf8").split(/\r?\n/)) {
+        const match = line.match(/^\s*([^#][^=]+)=(.*)$/);
+        if (match) process.env[match[1].trim()] = match[2];
+      }
+      break;
+    }
+    const parent = path.dirname(stagingDir);
+    if (parent === stagingDir) break;
+    stagingDir = parent;
+  }
 }
 
 const schema = z.object({
@@ -45,6 +62,25 @@ const schema = z.object({
   TWILIO_FROM: z.string().optional().default(""),
   SMS_TEST_NUMBER: z.string().optional().default(""),
 });
+
+function databaseName(url: string): string {
+  const pathOnly = url.split("?")[0] ?? "";
+  const name = pathOnly.slice(pathOnly.lastIndexOf("/") + 1);
+  return decodeURIComponent(name);
+}
+
+function assertDatabaseIsolation(): void {
+  const appEnv = process.env.APP_ENV || "development";
+  const name = databaseName(process.env.DATABASE_URL || "");
+  if (appEnv === "staging" && name !== "digi_capsule_staging") {
+    throw new Error("APP_ENV=staging requires DATABASE_URL to use the digi_capsule_staging database.");
+  }
+  if (appEnv === "production" && (name === "digi_capsule_staging" || name === "digi_capsule_test")) {
+    throw new Error("APP_ENV=production cannot use the staging or test database.");
+  }
+}
+
+assertDatabaseIsolation();
 
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {

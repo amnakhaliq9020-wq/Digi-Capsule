@@ -9,6 +9,7 @@ import type { StoragePort } from "./lib/storage";
 import { env, isTestMode, isVerificationReleaseEnabled } from "./env";
 import { serverNow, usesSimulationClock } from "./lib/clock";
 import { AppError } from "./errors";
+import { opsLog } from "./lib/ops-log";
 import { createStorage } from "./lib/storage";
 import { authRoutes } from "./routes/auth";
 import { waitlistRoutes } from "./routes/waitlist";
@@ -39,7 +40,10 @@ export async function buildApp() {
         "req.body.newPassword",
         "req.body.body",
         "req.body.token",
+        "req.params.token",
         "req.body.code",
+        "req.body.smtpPassword",
+        "req.body.passwordHash",
       ],
     },
   });
@@ -91,16 +95,28 @@ export async function buildApp() {
         error: { code: "VALIDATION_ERROR", message: "The request could not be read." },
       });
     }
-    request.log.error({ err: error }, "request failed");
+    request.log.error({ event: "api.error", code: coded.code || "INTERNAL", requestId: request.id }, "request failed");
+    opsLog("error", "api.error", { code: coded.code || "INTERNAL", requestId: request.id });
     return reply.status(500).send({ error: { code: "INTERNAL", message: "Something went wrong." } });
   });
 
   await app.register(async (api) => {
-    api.get("/health", async () => {
-      await prisma.$queryRaw`SELECT 1`;
+    api.get("/health", async (request, reply) => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+      } catch {
+        request.log.error({ event: "database.connection_failed", requestId: request.id }, "database unavailable");
+        opsLog("error", "database.connection_failed", { requestId: request.id });
+        return reply.code(503).send({
+          status: "down",
+          database: "down",
+          environment: process.env.APP_ENV || "development",
+        });
+      }
       return {
         status: "ok",
         database: "up",
+        environment: process.env.APP_ENV || "development",
         testMode: isTestMode(),
         serverTime: serverNow().toISOString(),
         schedulingClock: usesSimulationClock() ? "simulation" : "server",

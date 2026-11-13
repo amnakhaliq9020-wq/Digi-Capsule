@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { canView } from "./can-view";
 import { actionsForMissedCheckIn, dueReminderOffsets, nextDueAt, shouldRecordSimulatedRelease } from "./check-in";
-import { ageEmbargoInstant, exactInstant, nextAnnualOccurrence } from "./schedule";
+import { calendarJobKey, checkInNoticeKey, memoryReadyKey } from "./idempotency";
+import { ageEmbargoInstant, calendarDeliveryInstants, earliestDelivery, exactInstant, nextAnnualOccurrence } from "./schedule";
 import { missedCheckInCreatesContentJob, verificationReducer } from "./verification";
 
 const author = { kind: "author" as const, userId: "author-1" };
@@ -15,6 +16,20 @@ describe("canView", () => {
 
   it("denies a recipient without a grant", () => {
     expect(canView(recipient, item, null)).toBe(false);
+  });
+
+  it("lets a recipient open a scheduled memory only after their own job is sent", () => {
+    const grant = {
+      linkedUserId: "recipient-1",
+      visibility: "released_only" as const,
+      revoked: false,
+      jobStatus: "sent" as const,
+    };
+    expect(canView(recipient, { ...item, status: "scheduled" }, grant)).toBe(true);
+    expect(canView(recipient, { ...item, status: "scheduled" }, { ...grant, jobStatus: "pending" })).toBe(false);
+    expect(canView(recipient, { ...item, status: "scheduled" }, { ...grant, jobStatus: "uncertain" })).toBe(false);
+    expect(canView(recipient, { ...item, status: "released" }, { ...grant, jobStatus: "delivered" })).toBe(true);
+    expect(canView(recipient, { ...item, status: "cancelled" }, grant)).toBe(false);
   });
 
   it("denies a recipient grant on a draft", () => {
@@ -169,6 +184,23 @@ describe("verification", () => {
   });
 });
 
+describe("delivery schedule keys", () => {
+  it("keeps one key for a schedule generation and changes it when that generation changes", () => {
+    const first = calendarJobKey("item", "person", "2026-07-15T04:00:00.000Z", 1);
+    expect(calendarJobKey("item", "person", "2026-07-15T04:00:00.000Z", 1)).toBe(first);
+    expect(calendarJobKey("item", "person", "2026-07-15T04:00:00.000Z", 2)).not.toBe(first);
+    expect(memoryReadyKey("item", "person", "2026-07-15T04:00:00.000Z", 2)).toBe("memory-ready:item:person:2026-07-15T04:00:00.000Z:g2");
+  });
+});
+
+describe("check-in notice keys", () => {
+  it("keeps the same key for a retry and changes it when the check-in generation changes", () => {
+    const first = checkInNoticeKey({ userId: "user-1", cycleId: "cycle-1", generation: 1, kind: "missed_check_in", channel: "email" });
+    expect(checkInNoticeKey({ userId: "user-1", cycleId: "cycle-1", generation: 1, kind: "missed_check_in", channel: "email" })).toBe(first);
+    expect(checkInNoticeKey({ userId: "user-1", cycleId: "cycle-1", generation: 2, kind: "missed_check_in", channel: "email" })).not.toBe(first);
+  });
+});
+
 describe("schedule math", () => {
   it("converts an exact New York local time to UTC", () => {
     const instant = exactInstant("2026-01-15", "09:00", "America/New_York");
@@ -188,6 +220,21 @@ describe("schedule math", () => {
   it("runs 29 February annually on 28 February in a non-leap year", () => {
     const next = nextAnnualOccurrence(2, 29, "09:00", "UTC", new Date("2026-01-01T00:00:00.000Z"));
     expect(next.toISOString()).toBe("2026-02-28T09:00:00.000Z");
+  });
+
+  it("keeps one calendar day across time zones and rejects a non-leap 29 February", () => {
+    const plan = calendarDeliveryInstants("2026-06-02", "09:00", [
+      { personId: "karachi", timeZone: "Asia/Karachi" },
+      { personId: "new-york", timeZone: "America/New_York" },
+    ]);
+    expect(plan.find((row) => row.personId === "karachi")?.occursAt.toISOString()).toBe("2026-06-02T04:00:00.000Z");
+    expect(plan.find((row) => row.personId === "new-york")?.occursAt.toISOString()).toBe("2026-06-02T13:00:00.000Z");
+    expect(earliestDelivery(plan.map((row) => row.occursAt)).toISOString()).toBe("2026-06-02T04:00:00.000Z");
+    expect(exactInstant("2026-06-02", "02:00", "Asia/Karachi").toISOString()).toBe("2026-06-01T21:00:00.000Z");
+    expect(exactInstant("2026-12-31", "09:00", "Asia/Karachi").toISOString()).toBe("2026-12-31T04:00:00.000Z");
+    expect(exactInstant("2026-01-31", "09:00", "America/New_York").toISOString()).toBe("2026-01-31T14:00:00.000Z");
+    expect(exactInstant("2028-02-29", "09:00", "Asia/Karachi").toISOString()).toBe("2028-02-29T04:00:00.000Z");
+    expect(() => exactInstant("2027-02-29", "09:00", "UTC")).toThrow("INVALID_LOCAL_TIME");
   });
 
   it("places an 18th birthday embargo on the birth date", () => {

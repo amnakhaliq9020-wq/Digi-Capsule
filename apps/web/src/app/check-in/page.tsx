@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, useTimeZone } from "@/components/Shell";
+import { Status } from "@/components/Status";
 import { ApiError, api } from "@/lib/api";
 import { formatWhen } from "@/lib/time";
 
@@ -76,7 +77,7 @@ function CheckInBody() {
         <div className="grid">
           <article className="card stat"><span>Last check-in</span><strong>{data.lastCheckInAt ? formatWhen(data.lastCheckInAt, timeZone) : "None yet"}</strong></article>
           <article className="card stat"><span>Next due</span><strong>{data.nextCheckInDueAt ? `${formatWhen(data.nextCheckInDueAt, timeZone)} (${timeZone})` : "Not yet"}</strong></article>
-          <article className="card stat"><span>Status</span><strong>{data.status === "overdue" ? "Check-in is overdue" : "Check-in is on time"}{data.daysOverdue ? `. ${data.daysOverdue} days past due` : ""}</strong></article>
+          <article className="card stat"><span>Status</span><strong><Status kind={data.status === "overdue" ? "warning" : "success"}>{data.status === "overdue" ? "Check-in is overdue" : "Check-in is on time"}</Status>{data.daysOverdue ? ` ${data.daysOverdue} days past due` : ""}</strong></article>
           <article className="card stat"><span>Warning stage</span><strong>{data.warningStage.replaceAll("_", " ")}</strong></article>
           <article className="card stat"><span>Confirmation status</span><strong>{data.accountCheckStatus.replaceAll("_", " ")}</strong></article>
           <article className="card stat"><span>Confirmation deadline</span><strong>{data.confirmationDeadline ? `${formatWhen(data.confirmationDeadline, timeZone)} (${timeZone})` : "Not open"}</strong></article>

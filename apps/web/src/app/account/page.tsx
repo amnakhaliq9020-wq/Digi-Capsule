@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useA11y, visionModes, type VisionMode } from "@/components/Accessibility";
 import { Shell } from "@/components/Shell";
+import { Status, statusKindFor } from "@/components/Status";
 import { ApiError, api } from "@/lib/api";
 import { formatWhen, zonesWith } from "@/lib/time";
 
@@ -13,7 +15,16 @@ type SmtpView = {
   status: { configured: boolean; connection: string; lastSuccessAt: string | null; lastFailureAt: string | null; lastFailureCode: string | null; senderVerifiedAt: string | null };
 };
 
+const visionLabels: Record<VisionMode, string> = {
+  default: "Default theme",
+  protanopia: "Protanopia — red color vision deficiency",
+  deuteranopia: "Deuteranopia — green color vision deficiency",
+  tritanopia: "Tritanopia — blue-yellow color vision deficiency",
+  achromatopsia: "Achromatopsia — monochromatic vision",
+};
+
 export default function AccountPage() {
+  const { prefs, update } = useA11y();
   const [account, setAccount] = useState<Account | null>(null);
   const [timeZone, setTimeZone] = useState("UTC");
   const [serverTime, setServerTime] = useState("");
@@ -180,8 +191,8 @@ export default function AccountPage() {
         <select id="zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
           {zonesWith(timeZone).map((zone) => <option key={zone}>{zone}</option>)}
         </select>
-        {error ? <p className="error" role="alert">{error}</p> : null}
-        {message ? <p className="banner">{message}</p> : null}
+        {error ? <Status kind="error">{error}</Status> : null}
+        {message ? <Status kind="success">{message}</Status> : null}
         <p><button type="submit">Save time zone</button></p>
       </form>
       <form className="card stack" onSubmit={(event) => void changePassword(event)}>
@@ -194,6 +205,21 @@ export default function AccountPage() {
         {passwordError ? <p className="error" role="alert">{passwordError}</p> : null}
         {passwordMessage ? <p className="banner">{passwordMessage}</p> : null}
         <p><button type="submit">Change password</button></p>
+      </form>
+      <form className="card stack" onSubmit={(event) => event.preventDefault()}>
+        <h2><span className="row">Color Vision Accessibility</span></h2>
+        <p className="muted">These modes change the palette for the whole application. They are design aids, not a substitute for testing with people who have a color-vision deficiency.</p>
+        <fieldset>
+          <legend>Color vision mode</legend>
+          {visionModes.map((mode) => (
+            <label key={mode} className="check">
+              <input type="radio" name="color-vision" checked={prefs.colorVision === mode} onChange={() => update({ ...prefs, colorVision: mode })} /> {visionLabels[mode]}
+            </label>
+          ))}
+        </fieldset>
+        <label className="check"><input type="checkbox" checked={prefs.highContrast} onChange={(event) => update({ ...prefs, highContrast: event.target.checked })} /> High contrast</label>
+        <label className="check"><input type="checkbox" checked={prefs.largeText} onChange={(event) => update({ ...prefs, largeText: event.target.checked })} /> Increased text size</label>
+        <label className="check"><input type="checkbox" checked={prefs.reducedMotion} onChange={(event) => update({ ...prefs, reducedMotion: event.target.checked })} /> Reduced motion</label>
       </form>
       {smtp ? (
         <>
@@ -256,7 +282,7 @@ export default function AccountPage() {
         <h2>Notification status</h2>
         {notices.length === 0 ? <p className="muted">No messages recorded for this account yet.</p> : null}
         {notices.map((notice) => (
-          <p key={notice.id}>{notice.channel} · {notice.templateId.replaceAll("_", " ")} · {notice.status}{notice.errorCode ? ` · ${notice.errorCode}` : ""}{notice.cancelledAt ? " · cancelled" : ""}</p>
+          <p key={notice.id}><Status kind={statusKindFor(notice.status)}>{notice.channel} · {notice.templateId.replaceAll("_", " ")}{notice.errorCode ? ` · ${notice.errorCode}` : ""}</Status></p>
         ))}
       </article>
       </div>

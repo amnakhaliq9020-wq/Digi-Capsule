@@ -44,6 +44,12 @@ enum MediaStatus {
   deleted
 }
 
+enum MediaShareStatus {
+  active
+  expired
+  revoked
+}
+
 enum ContactRoleKind {
   recipient
   trusted_contact
@@ -74,10 +80,13 @@ enum ReleaseRuleStatus {
 enum ReleaseJobStatus {
   pending
   sending
+  processing
   sent
+  delivered
   failed
   cancelled
   dead
+  uncertain
 }
 
 enum CheckInCycleState {
@@ -145,6 +154,7 @@ enum NotificationStatus {
   failed
   bounced
   cancelled
+  uncertain
 }
 
 enum ConsentPurpose {
@@ -180,6 +190,8 @@ model User {
   emailVerificationTokens  EmailVerificationToken[]
   passwordResetTokens      PasswordResetToken[]
   mediaAccessTokens        MediaAccessToken[]
+  shareLinksOwned          MediaShareLink[] @relation("ShareOwner")
+  shareLinksReceived       MediaShareLink[] @relation("ShareRecipient")
   notificationDeliveries   NotificationDelivery[]
 
   @@map("users")
@@ -193,6 +205,7 @@ model Profile {
   checkInChannelEmail  Boolean @default(true) @map("check_in_channel_email")
   checkInChannelSms    Boolean @default(false) @map("check_in_channel_sms")
   phoneE164            String? @map("phone_e164")
+  accessibility        Json?
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
@@ -272,8 +285,9 @@ model CapsuleItem {
   bodyCiphertext   Bytes?     @map("body_ciphertext")
   bodyNonce        Bytes?     @map("body_nonce")
   bodyTag          Bytes?     @map("body_tag")
-  status           ItemStatus @default(draft)
-  releasedAt       DateTime?  @map("released_at") @db.Timestamptz(6)
+  status             ItemStatus @default(draft)
+  scheduleGeneration Int        @default(1) @map("schedule_generation")
+  releasedAt         DateTime?  @map("released_at") @db.Timestamptz(6)
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
   capsule          Capsule    @relation(fields: [capsuleId], references: [id], onDelete: Cascade)
@@ -281,6 +295,7 @@ model CapsuleItem {
   grants           ItemGrant[]
   releaseRules     ReleaseRule[]
   releaseJobs      ReleaseJob[]
+  shareLinks       MediaShareLink[]
 
   @@index([capsuleId, status])
   @@map("capsule_items")
@@ -300,6 +315,7 @@ model MediaAsset {
   owner        User        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   links        ItemMedia[]
   accessTokens MediaAccessToken[]
+  shareLinks   MediaShareLink[]
 
   @@index([ownerUserId, status])
   @@map("media_assets")
@@ -317,6 +333,32 @@ model MediaAccessToken {
 
   @@index([userId])
   @@map("media_access_tokens")
+}
+
+model MediaShareLink {
+  id              String           @id @default(uuid()) @db.Uuid
+  tokenHash       String           @unique @map("token_hash")
+  ownerUserId     String           @map("owner_user_id") @db.Uuid
+  recipientUserId String           @map("recipient_user_id") @db.Uuid
+  personId        String           @map("person_id") @db.Uuid
+  capsuleItemId   String           @map("capsule_item_id") @db.Uuid
+  mediaAssetId    String           @map("media_asset_id") @db.Uuid
+  expiresAt       DateTime         @map("expires_at") @db.Timestamptz(6)
+  revokedAt       DateTime?        @map("revoked_at") @db.Timestamptz(6)
+  lastAccessAt    DateTime?        @map("last_access_at") @db.Timestamptz(6)
+  status          MediaShareStatus @default(active)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  owner           User             @relation("ShareOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  recipient       User             @relation("ShareRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  person          Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+  item            CapsuleItem      @relation(fields: [capsuleItemId], references: [id], onDelete: Cascade)
+  asset           MediaAsset       @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@index([capsuleItemId, status])
+  @@index([mediaAssetId])
+  @@index([recipientUserId])
+  @@index([expiresAt])
+  @@map("media_share_links")
 }
 
 model ItemMedia {
@@ -345,6 +387,7 @@ model Person {
   roles         ContactRole[]
   grants        ItemGrant[]
   releaseJobs   ReleaseJob[]
+  shareLinks    MediaShareLink[]
   attestations  Attestation[]
   openedCases   VerificationCase[]
   verificationTokens ContactVerificationToken[]
@@ -419,9 +462,17 @@ model ReleaseJob {
   capsuleItemId       String           @map("capsule_item_id") @db.Uuid
   personId            String           @map("person_id") @db.Uuid
   occurrenceAt        DateTime         @map("occurrence_at") @db.Timestamptz(6)
+  scheduleGeneration  Int              @default(1) @map("schedule_generation")
   status              ReleaseJobStatus @default(pending)
   attemptCount        Int              @default(0) @map("attempt_count")
   providerMessageId   String?          @map("provider_message_id")
+  providerResponse    String?          @map("provider_response")
+  lastError           String?          @map("last_error")
+  workerId            String?          @map("worker_id")
+  retryable           Boolean          @default(true)
+  claimedAt           DateTime?        @map("claimed_at") @db.Timestamptz(6)
+  dispatchStartedAt   DateTime?        @map("dispatch_started_at") @db.Timestamptz(6)
+  nextAttemptAt       DateTime?        @map("next_attempt_at") @db.Timestamptz(6)
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   sentAt              DateTime?        @map("sent_at") @db.Timestamptz(6)
   cancelledAt         DateTime?        @map("cancelled_at") @db.Timestamptz(6)
@@ -431,6 +482,7 @@ model ReleaseJob {
   person              Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([status, occurrenceAt])
+  @@index([capsuleItemId, scheduleGeneration])
   @@map("release_jobs")
 }
 
@@ -546,12 +598,19 @@ model NotificationDelivery {
   relatedType       String               @map("related_type")
   relatedId         String               @map("related_id")
   providerMessageId String?              @map("provider_message_id")
+  providerResponse  String?              @map("provider_response")
   errorCode         String?              @map("error_code")
+  workerId          String?              @map("worker_id")
+  retryable         Boolean              @default(true)
   scheduledAt       DateTime?            @map("scheduled_at") @db.Timestamptz(6)
   sentAt            DateTime?            @map("sent_at") @db.Timestamptz(6)
   cancelledAt       DateTime?            @map("cancelled_at") @db.Timestamptz(6)
+  claimedAt         DateTime?            @map("claimed_at") @db.Timestamptz(6)
+  dispatchStartedAt DateTime?            @map("dispatch_started_at") @db.Timestamptz(6)
+  nextAttemptAt     DateTime?            @map("next_attempt_at") @db.Timestamptz(6)
   generationId      Int?                 @map("generation_id")
   attemptCount      Int                  @default(0) @map("attempt_count")
+  payload           Json?
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
   user              User?                @relation(fields: [userId], references: [id], onDelete: Cascade)

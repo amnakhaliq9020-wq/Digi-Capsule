@@ -1,0 +1,26 @@
+# Local staging only. This stack uses port 5433 and the database name digi_capsule_staging.
+# The project name is separate so this file cannot recreate the development Postgres container.
+# Change STAGING_DB_PASSWORD before any shared host.
+name: digi-staging
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: digi-staging-postgres
+    environment:
+      POSTGRES_USER: ${STAGING_DB_USER:-digi_staging}
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:-digi_staging}
+      POSTGRES_DB: digi_capsule_staging
+    ports:
+      - "5433:5432"
+    volumes:
+      - digi_staging_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digi_staging -d digi_capsule_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  digi_staging_pg:
+    name: digi_staging_pg

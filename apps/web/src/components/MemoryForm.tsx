@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
 import { describeLocalChoice, formatWhen, zonesWith } from "@/lib/time";
 
-type Contact = { id: string; displayName: string; email: string; emailVerified: boolean; roles: string[] };
+type Contact = { id: string; displayName: string; email: string; emailVerified: boolean; roles: string[]; timeZone: string | null };
 type Attachment = { id: string; mimeType: string; originalName: string; kind: "photo" | "video" };
 type Memory = {
   id: string;
@@ -30,6 +30,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const [timeZone, setTimeZone] = useState("UTC");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [id, setId] = useState(memoryId);
+  const [deliveryStatus, setDeliveryStatus] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [serverTime, setServerTime] = useState("");
@@ -48,6 +49,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
       setServerTime(clock.serverTime);
       setTimeZone(data?.memory.schedule?.timeZone || profile.user.timeZone);
       if (!data) return;
+      setDeliveryStatus(data.memory.status);
       setTitle(data.memory.title);
       setBody(data.memory.body);
       setAttachments(data.memory.attachments);
@@ -104,14 +106,18 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   }
 
   async function schedule() {
+    if (deliveryStatus === "scheduled") {
+      const confirmed = window.confirm("Change this scheduled delivery? The previous date and unsent jobs will be replaced. A message the email provider already accepted cannot be recalled.");
+      if (!confirmed) return;
+    }
     setError("");
     try {
       const memory = await saveDraft();
-      await api(`/v1/memories/${memory}/schedule`, {
+      const saved = await api<{ message?: string }>(`/v1/memories/${memory}/schedule`, {
         method: "POST",
         body: JSON.stringify({ mode, localDate, localTime, timeZone, recipientIds: selected }),
       });
-      router.push(`/memories/${memory}`);
+      router.push(`/memories/${memory}?notice=${encodeURIComponent(saved.message || "Delivery updated.")}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save the schedule.");
     }
@@ -163,7 +169,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         {contacts.filter((contact) => contact.roles.includes("recipient")).map((contact) => (
           <label key={contact.id} className="check">
             <input type="checkbox" checked={selected.includes(contact.id)} onChange={() => setSelected((current) => current.includes(contact.id) ? current.filter((value) => value !== contact.id) : [...current, contact.id])} />
-            <span>{contact.displayName} · {contact.email} {contact.emailVerified ? "" : "(email not verified)"}</span>
+            <span>{contact.displayName} · {contact.email} {contact.timeZone ? `· ${contact.timeZone}` : "· no time zone saved"} {contact.emailVerified ? "" : "(email not verified)"}</span>
           </label>
         ))}
         {contacts.length === 0 ? <p className="muted">Add a contact first.</p> : null}
@@ -173,7 +179,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         {mode === "on_date" ? (
           <>
             <div className="callout">
-              <p>Server time: {serverTime ? formatWhen(serverTime, timeZone) : "Loading…" } ({timeZone}). A delivery has to be later than this. The date and time below are in the time zone you choose.</p>
+              <p>Server time: {serverTime ? formatWhen(serverTime, timeZone) : "Loading…" } ({timeZone}). A delivery has to be later than this. The date is each recipient&apos;s calendar day. The time, 9:00 am unless you change it, is read in that recipient&apos;s time zone. The time zone below is used only when a recipient has not chosen one.</p>
             </div>
             <p className="banner">{describeLocalChoice(localDate, localTime, timeZone)}</p>
             <label htmlFor="date">Date</label>
@@ -181,7 +187,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
             <label htmlFor="time">Time</label>
             <p id="time-help" className="muted">The clock uses am and pm. The sentence above repeats the time so the numbers are not the only form.</p>
             <input id="time" type="time" aria-describedby="time-help" value={localTime} onChange={(event) => setLocalTime(event.target.value)} />
-            <label htmlFor="zone">Time zone</label>
+            <label htmlFor="zone">Time zone when a recipient has not chosen one</label>
             <select id="zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>{zonesWith(timeZone).map((zone) => <option key={zone}>{zone}</option>)}</select>
           </>
         ) : <p className="muted">Warnings stay separate from this memory. The test console can deliver it after the final warning plus 7 days. Production does not.</p>}
@@ -189,7 +195,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
           <strong>Preview</strong>
           <p className="muted">
             {mode === "on_date"
-              ? `${describeLocalChoice(localDate, localTime, timeZone)} ${chosen.map((person) => person.displayName).join(", ") || "The selected people"} receive this letter and its files in the local test inbox. A real email provider is not used.`
+              ? `${describeLocalChoice(localDate, localTime, chosen.find((person) => person.timeZone)?.timeZone || timeZone)} ${chosen.map((person) => `${person.displayName} (${person.timeZone || timeZone})`).join(", ") || "The selected people"} receive this on that calendar day. A recipient who has saved a time zone uses theirs.`
               : `${chosen.map((person) => person.displayName).join(", ") || "The selected people"} receive this memory only after the test-console missed-check-in sequence. Warnings never include the letter.`}
           </p>
         </div>

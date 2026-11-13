@@ -13,7 +13,7 @@ export type ViewGrant = {
   linkedUserId: string | null;
   visibility: "hidden" | "released_only";
   revoked: boolean;
-  jobStatus: "pending" | "sending" | "sent" | "failed" | "cancelled" | "dead" | null;
+  jobStatus: "pending" | "sending" | "processing" | "sent" | "delivered" | "failed" | "cancelled" | "dead" | "uncertain" | null;
 };
 
 export function canView(principal: ViewPrincipal, item: ViewItem, grant: ViewGrant | null): boolean {
@@ -23,6 +23,6 @@ export function canView(principal: ViewPrincipal, item: ViewItem, grant: ViewGra
   if (!grant || grant.revoked) return false;
   if (grant.visibility !== "released_only") return false;
   if (grant.linkedUserId !== principal.userId) return false;
-  if (item.status !== "released") return false;
-  return grant.jobStatus === "sent";
+  if (item.status !== "released" && item.status !== "scheduled") return false;
+  return grant.jobStatus === "sent" || grant.jobStatus === "delivered";
 }

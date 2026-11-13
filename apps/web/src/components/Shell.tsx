@@ -3,25 +3,26 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
+import { Icon, type IconName } from "@/components/icons/Icon";
 import { api } from "@/lib/api";
 
-const links = [
-  ["/dashboard", "Home", "M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"],
-  ["/memories", "Memories", "M6 4h9l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM9 12h6M9 16h6"],
-  ["/contacts", "Contacts", "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 19a5 5 0 0 1 10 0M16 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM16 13.2a4.2 4.2 0 0 1 4 3.8"],
-  ["/deliveries", "Scheduled messages", "M5 6h14v12H5zM8 4v4M16 4v4M5 10h14"],
-  ["/check-in", "Check-in", "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"],
-  ["/warnings", "Warnings", "M12 4 3 19h18L12 4zM12 10v4M12 16.5h.01"],
-  ["/account", "Settings", "M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM4 19a8 8 0 0 1 16 0"],
-  ["/dev", "Test console", "M8 8 4 12l4 4M16 8l4 4-4 4"],
-] as const;
+const links: ReadonlyArray<readonly [string, string, IconName]> = [
+  ["/dashboard", "Home", "home"],
+  ["/memories", "Memories", "memories"],
+  ["/contacts", "Contacts", "contacts"],
+  ["/deliveries", "Scheduled messages", "calendar"],
+  ["/check-in", "Check-in", "clock"],
+  ["/warnings", "Warnings", "warning"],
+  ["/account", "Settings", "settings"],
+  ["/dev", "Test console", "help"],
+];
 
-const bottom = [
-  ["/dashboard", "Home"],
-  ["/memories", "Memories"],
-  ["/contacts", "Contacts"],
-  ["/deliveries", "Schedule"],
-] as const;
+const bottom: ReadonlyArray<readonly [string, string, IconName]> = [
+  ["/dashboard", "Home", "home"],
+  ["/memories", "Memories", "memories"],
+  ["/contacts", "Contacts", "contacts"],
+  ["/deliveries", "Schedule", "calendar"],
+];
 
 const TimeZoneContext = createContext("UTC");
 
@@ -48,9 +49,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
         setName(data.user.displayName);
         if (data.user.timeZone) setTimeZone(data.user.timeZone);
       })
-      .catch(() => router.replace("/login"));
+      .catch(() => {
+        if (path !== "/share") router.replace("/login");
+      });
     api<{ testMode: boolean }>("/v1/health").then((data) => setTestMode(data.testMode)).catch(() => undefined);
-  }, [router]);
+  }, [path, router]);
 
   const visible = links.filter(([href]) => href !== "/dev" || testMode);
 
@@ -65,7 +68,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <form className="search" role="search" action="/memories">
           <label className="sr-only" htmlFor="memory-search">Search memories</label>
           <input id="memory-search" name="q" type="search" placeholder="Search memories" />
-          <button type="submit">Search</button>
+          <button type="submit"><Icon name="search" /> Search</button>
         </form>
         <div className="top-actions">
           <Link className="button secondary" href="/warnings">Warnings</Link>
@@ -80,7 +83,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <nav className="nav-links" aria-label="Account">
             {visible.map(([href, label, icon]) => (
               <Link key={href} href={href} className={isCurrent(href, path) ? "active" : ""} aria-current={isCurrent(href, path) ? "page" : undefined}>
-                <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={icon} /></svg>
+                <Icon name={icon} />
                 {label}
               </Link>
             ))}
@@ -91,8 +94,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </TimeZoneContext.Provider>
       </div>
       <nav className="bottom-nav" aria-label="Primary">
-        {bottom.map(([href, label]) => (
-          <Link key={href} href={href} aria-current={isCurrent(href, path) ? "page" : undefined}>{label}</Link>
+        {bottom.map(([href, label, icon]) => (
+          <Link key={href} href={href} aria-current={isCurrent(href, path) ? "page" : undefined}><Icon name={icon} /> {label}</Link>
         ))}
       </nav>
     </div>

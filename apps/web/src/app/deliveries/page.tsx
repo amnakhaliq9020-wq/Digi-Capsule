@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell, useTimeZone } from "@/components/Shell";
+import { Status, statusKindFor } from "@/components/Status";
 import { ApiError, api } from "@/lib/api";
-import { formatWhen, waitingDeliveryNote } from "@/lib/time";
+import { civilDateLabel, civilTimeLabel, formatWhen, waitingDeliveryNote } from "@/lib/time";
 
 type Delivery = {
   id: string;
@@ -22,7 +23,8 @@ type Memory = {
   status: string;
   deliveryMode: string;
   recipients: { displayName: string; email: string }[];
-  schedule: { nextRunAt: string | null; timeZone: string } | null;
+  schedule: { nextRunAt: string | null; timeZone: string; localDate: string | null; localTime: string | null } | null;
+  recipientDeliveries?: { id: string; displayName: string; timeZone: string; localDate: string | null; localTime: string | null; occursAt: string | null; deliveryStatus: string }[];
 };
 
 export default function DeliveriesPage() {
@@ -37,10 +39,11 @@ function DeliveriesBody() {
   const [testMode, setTestMode] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const timeZone = useTimeZone();
 
-  useEffect(() => {
-    Promise.all([
+  function load() {
+    return Promise.all([
       api<{ deliveries: Delivery[] }>("/v1/deliveries"),
       api<{ memories: Memory[] }>("/v1/memories"),
       api<{ serverTime: string }>("/v1/dashboard"),
@@ -52,7 +55,25 @@ function DeliveriesBody() {
       setServerTime(dashboard.serverTime);
       setTestMode(health.testMode);
     }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load deliveries.")).finally(() => setReady(true));
+  }
+
+  useEffect(() => {
+    void load();
   }, []);
+
+  async function cancelDelivery(memory: Memory) {
+    const confirmed = window.confirm(`Cancel the delivery of “${memory.title}”? The memory stays in your capsule. A message the email provider already accepted cannot be recalled.`);
+    if (!confirmed) return;
+    setError("");
+    setNotice("");
+    try {
+      const result = await api<{ message?: string }>(`/v1/memories/${memory.id}/cancel`, { method: "POST" });
+      setNotice(result.message || "Delivery cancelled. The memory is still in your capsule.");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not cancel this delivery.");
+    }
+  }
 
   const clock = serverTime ? new Date(serverTime).getTime() : Date.now();
 
@@ -61,6 +82,7 @@ function DeliveriesBody() {
       <h1>Scheduled messages</h1>
       <p className="muted">A saved date is not a sent message. The first list is every memory waiting for its date. A row in Sent appears after that time has passed and the worker has run once. Running the worker again does not add another row.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
+      {notice ? <p className="ok" role="status">{notice}</p> : null}
 
       <section className="section">
         <h2>Saved for a date</h2>
@@ -70,11 +92,19 @@ function DeliveriesBody() {
             const when = memory.schedule?.nextRunAt ?? "";
             const due = new Date(when).getTime() <= clock;
             return (
-              <Link key={memory.id} className="item" href={`/memories/${memory.id}`}>
-                <strong>{memory.title}</strong>
+              <article key={memory.id} className="item">
+                <Link href={`/memories/${memory.id}`}><strong>{memory.title}</strong></Link>
                 <p className="muted">{memory.recipients.map((person) => `${person.displayName} (${person.email})`).join(", ") || "No recipient yet"}</p>
-                <p className="muted">Sends {formatWhen(when, timeZone)} ({memory.schedule?.timeZone}). {waitingDeliveryNote(due, testMode)}</p>
-              </Link>
+                {memory.recipientDeliveries && memory.recipientDeliveries.length > 0 ? memory.recipientDeliveries.map((row) => (
+                  <p key={row.id} className="muted">Scheduled date: {row.localDate ? civilDateLabel(row.localDate) : "Not set"}. Scheduled local time: {row.localTime ? civilTimeLabel(row.localTime) : "9:00 am"}. Recipient time zone: {row.displayName}, {row.timeZone}. Schedule status: scheduled. Delivery status: Pending. {waitingDeliveryNote(Boolean(row.occursAt) && new Date(row.occursAt!).getTime() <= clock, testMode)}</p>
+                )) : (
+                  <p className="muted">Scheduled date: {memory.schedule?.localDate ? civilDateLabel(memory.schedule.localDate) : formatWhen(when, timeZone)}. Scheduled local time: {memory.schedule?.localTime ? civilTimeLabel(memory.schedule.localTime) : "9:00 am"}. Recipient time zone: {memory.schedule?.timeZone}. Schedule status: scheduled. Delivery status: Pending. {waitingDeliveryNote(due, testMode)}</p>
+                )}
+                <div className="row">
+                  <Link className="button" href={`/memories/${memory.id}/edit#delivery`}>Edit delivery</Link>
+                  <button className="secondary" type="button" onClick={() => void cancelDelivery(memory)}>Cancel delivery</button>
+                </div>
+              </article>
             );
           })}
         </div>
@@ -88,7 +118,7 @@ function DeliveriesBody() {
             <article key={delivery.id} className="item">
               <strong>{delivery.memoryTitle}</strong>
               <p className="muted">{delivery.recipient.displayName} ({delivery.recipient.email})</p>
-              <p className="muted">{delivery.trigger === "after_verification" ? "If I am gone" : "On a date"} · {delivery.status === "sent" ? "Sent" : delivery.status.replaceAll("_", " ")} · {formatWhen(delivery.sentAt || delivery.occurrenceAt, timeZone)}</p>
+              <p className="muted">{delivery.trigger === "after_verification" ? "If I am gone" : "On a date"} · <Status kind={delivery.status === "sent" ? "delivered" : statusKindFor(delivery.status)}>{delivery.status === "sent" ? "Sent" : delivery.status.replaceAll("_", " ")}</Status> · {formatWhen(delivery.sentAt || delivery.occurrenceAt, timeZone)}</p>
             </article>
           ))}
         </div>

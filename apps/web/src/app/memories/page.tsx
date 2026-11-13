@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
+import { Status, statusKindFor } from "@/components/Status";
 import { api } from "@/lib/api";
 import { deliveryModeLabel, memoryStatusLabel } from "@/lib/time";
 
@@ -35,7 +36,7 @@ export default function MemoriesPage() {
         {shown.map((memory) => (
           <Link key={memory.id} className="item" href={`/memories/${memory.id}`}>
             <strong>{memory.title}</strong>
-            <div className="row"><span className="pill">{memoryStatusLabel(memory.status)}</span><span className="pill">{deliveryModeLabel(memory.deliveryMode)}</span></div>
+            <div className="row"><Status kind={statusKindFor(memory.status)}>{memoryStatusLabel(memory.status)}</Status><span className="pill">{deliveryModeLabel(memory.deliveryMode)}</span></div>
           </Link>
         ))}
       </div>

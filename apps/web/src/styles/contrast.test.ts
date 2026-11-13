@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrastRatio, palette } from "./contrast";
+import { contrastRatio, palette, visionPalettes } from "./contrast";
 
 describe("accessible color pairs", () => {
   it("keeps normal text at 4.5:1 or higher", () => {
@@ -24,6 +24,16 @@ describe("accessible color pairs", () => {
 
   it("keeps input borders at 3:1 against the card", () => {
     expect(contrastRatio(palette.borderStrong, palette.card)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps each color-vision palette readable", () => {
+    for (const [name, colors] of Object.entries(visionPalettes)) {
+      expect(contrastRatio(colors.text, colors.background), name).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.text, colors.card), name).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.muted, colors.background), name).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.onAccent, colors.accent), name).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.status, colors.background), name).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it("does not treat the pale decorative border as an input boundary", () => {

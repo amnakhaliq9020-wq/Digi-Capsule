@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@digi/db";
+import { revokeMediaShares } from "./media-shares";
 
 type Tx = PrismaClient | Prisma.TransactionClient;
 
@@ -16,12 +17,13 @@ export async function cancelFutureDeliveriesForPerson(tx: Tx, personId: string, 
     where: { personId },
     select: { capsuleItemId: true },
   });
+  await revokeMediaShares(tx, { personId }, now);
   await tx.itemGrant.updateMany({
     where: { personId, revokedAt: null },
     data: { revokedAt: now },
   });
   await tx.releaseJob.updateMany({
-    where: { personId, status: { in: ["pending", "failed", "sending"] } },
+    where: { personId, status: { in: ["pending", "failed", "sending", "processing", "uncertain"] } },
     data: { status: "cancelled", cancelledAt: now },
   });
   const itemIds = [...new Set(touched.map((row) => row.capsuleItemId))];
@@ -34,14 +36,15 @@ export async function cancelFutureDeliveriesForPerson(tx: Tx, personId: string, 
       data: { status: "cancelled", cancelledAt: now, nextRunAt: null },
     });
     await tx.releaseJob.updateMany({
-      where: { capsuleItemId: itemId, status: { in: ["pending", "failed", "sending"] } },
+      where: { capsuleItemId: itemId, status: { in: ["pending", "failed", "sending", "processing", "uncertain"] } },
       data: { status: "cancelled", cancelledAt: now },
     });
-    if (sent === 0) {
-      await tx.capsuleItem.updateMany({
-        where: { id: itemId, status: "scheduled" },
-        data: { status: "draft" },
-      });
-    }
+    await tx.capsuleItem.update({
+      where: { id: itemId },
+      data: {
+        scheduleGeneration: { increment: 1 },
+        ...(sent === 0 ? { status: "draft" as const } : {}),
+      },
+    });
   }
 }
