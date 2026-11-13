@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FormAlert } from "@/components/FormAlert";
 import { Shell } from "@/components/Shell";
 import { ApiError, api } from "@/lib/api";
 
@@ -98,16 +99,17 @@ export default function ContactsPage() {
     <Shell>
       <h1>Contacts</h1>
       <p className="muted">Add a name, email, and phone. Recipients can be chosen per memory. Trusted contacts and verifiers cannot read drafts. Saving a contact does not send a memory.</p>
-      <form className="card" onSubmit={(event) => void save(event)}>
+      <form className="card" onSubmit={(event) => void save(event)} noValidate>
         <label htmlFor="name">Name</label>
-        <input id="name" value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} required />
-        {fieldMessage("displayName") ? <p className="error" role="alert">{fieldMessage("displayName")}</p> : null}
+        <input id="name" value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} required aria-invalid={fieldMessage("displayName") ? true : undefined} aria-describedby={fieldMessage("displayName") ? "name-error" : undefined} />
+        {fieldMessage("displayName") ? <FormAlert><span id="name-error">{fieldMessage("displayName")}</span></FormAlert> : null}
         <label htmlFor="email">Email</label>
-        <input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-        {fieldMessage("email") ? <p className="error" role="alert">{fieldMessage("email")}</p> : null}
+        <input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required aria-invalid={fieldMessage("email") ? true : undefined} aria-describedby={fieldMessage("email") ? "email-error" : undefined} />
+        {fieldMessage("email") ? <FormAlert><span id="email-error">{fieldMessage("email")}</span></FormAlert> : null}
         <label htmlFor="phone">Phone</label>
-        <input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} required placeholder="+92 300 000 0000" />
-        {fieldMessage("phone") ? <p className="error" role="alert">{fieldMessage("phone")}</p> : null}
+        <p id="phone-help" className="muted">Include the country code. Example: +92 300 000 0000.</p>
+        <input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} required placeholder="+92 300 000 0000" aria-invalid={fieldMessage("phone") ? true : undefined} aria-describedby={fieldMessage("phone") ? "phone-help phone-error" : "phone-help"} />
+        {fieldMessage("phone") ? <FormAlert><span id="phone-error">{fieldMessage("phone")}</span></FormAlert> : null}
         <label htmlFor="relationship">Relationship</label>
         <input id="relationship" value={form.relationship} onChange={(event) => setForm({ ...form, relationship: event.target.value })} />
         <fieldset>
@@ -120,7 +122,7 @@ export default function ContactsPage() {
             <label key={role} className="check"><input type="checkbox" checked={form.roles.includes(role)} onChange={() => toggle(role)} /> {label}</label>
           ))}
         </fieldset>
-        {error ? <p className="error" role="alert">{error}</p> : null}
+        {error ? <FormAlert>{error}</FormAlert> : null}
         <div className="row">
           <button type="submit">{editing ? "Save changes" : "Add contact"}</button>
           {editing ? <button type="button" className="secondary" onClick={() => { setEditing(null); setForm(emptyForm); setError(""); setFields({}); }}>Cancel</button> : null}

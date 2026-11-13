@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FormAlert } from "@/components/FormAlert";
 import { ApiError, api } from "@/lib/api";
 import { describeLocalChoice, formatWhen, zonesWith } from "@/lib/time";
+import { UPLOAD_HELP, explainChosenFile, explainUploadFailure } from "@/lib/upload";
 
 type Contact = { id: string; displayName: string; email: string; emailVerified: boolean; roles: string[]; timeZone: string | null };
 type Attachment = { id: string; mimeType: string; originalName: string; kind: "photo" | "video" };
@@ -33,7 +35,10 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
   const [deliveryStatus, setDeliveryStatus] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [serverTime, setServerTime] = useState("");
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const saveLock = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
@@ -87,11 +92,27 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
 
   async function upload(file: File) {
     setError("");
-    const memory = id || await saveDraft();
-    const data = new FormData();
-    data.set("file", file);
-    const result = await api<{ attachment: Attachment }>(`/v1/memories/${memory}/attachments`, { method: "POST", body: data });
-    setAttachments((current) => [...current, result.attachment]);
+    setUploadError("");
+    const localProblem = explainChosenFile(file);
+    if (localProblem) {
+      setUploadError(localProblem);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
+    setUploading(true);
+    try {
+      const memory = id || await saveDraft();
+      const data = new FormData();
+      data.set("file", file);
+      const result = await api<{ attachment: Attachment }>(`/v1/memories/${memory}/attachments`, { method: "POST", body: data });
+      setAttachments((current) => [...current, result.attachment]);
+      setMessage(`Uploaded ${file.name}. It stays private with this draft.`);
+    } catch (err) {
+      setUploadError(explainUploadFailure(err, err instanceof ApiError ? err.message : "The upload did not finish. Check your connection and try again."));
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
   }
 
   async function removeAttachment(assetId: string) {
@@ -150,7 +171,22 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
         {id ? (
           <div>
             <label htmlFor="file">Photo or video</label>
-            <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file).catch((err) => setError(err instanceof ApiError ? err.message : "Upload failed.")); }} />
+            <p id="file-help" className="muted">{UPLOAD_HELP}</p>
+            <input
+              id="file"
+              ref={fileInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
+              aria-describedby={uploadError ? "file-help file-error" : "file-help"}
+              aria-invalid={uploadError ? true : undefined}
+              disabled={uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void upload(file);
+              }}
+            />
+            {uploading ? <p className="muted" aria-live="polite">Uploading… If this fails, the reason will appear below.</p> : null}
+            {uploadError ? <FormAlert><span id="file-error">{uploadError}</span></FormAlert> : null}
             <div className="media-grid">
               {attachments.map((file) => (
                 <figure key={file.id}>
@@ -161,7 +197,7 @@ export function MemoryForm({ memoryId }: { memoryId?: string }) {
             </div>
           </div>
         ) : <p className="empty">Save the draft before attaching a file.</p>}
-        {error ? <p className="error" role="alert">{error}</p> : null}
+        {error ? <FormAlert>{error}</FormAlert> : null}
       </form>
       <aside className="card stack" id="delivery">
         <h2>Who receives this</h2>

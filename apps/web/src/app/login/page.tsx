@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthFrame } from "@/components/AuthFrame";
+import { FormAlert } from "@/components/FormAlert";
 import { ApiError, api } from "@/lib/api";
 
 export default function LoginPage() {
@@ -31,12 +32,12 @@ export default function LoginPage() {
   return (
     <AuthFrame>
       <h1>Sign in</h1>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} noValidate>
         <label htmlFor="email">Email</label>
-        <input id="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required aria-invalid={error ? true : undefined} />
+        <input id="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required aria-invalid={error ? true : undefined} aria-describedby={error ? "login-error" : undefined} />
         <label htmlFor="password">Password</label>
-        <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required aria-invalid={error ? true : undefined} />
-        {error ? <p className="error" role="alert">{error}</p> : null}
+        <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required aria-invalid={error ? true : undefined} aria-describedby={error ? "login-error" : undefined} />
+        {error ? <FormAlert><span id="login-error">{error}</span></FormAlert> : null}
         <p><button type="submit">Sign in</button></p>
       </form>
       <p className="muted"><Link href="/forgot-password">Forgot password</Link></p>

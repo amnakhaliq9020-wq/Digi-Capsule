@@ -347,6 +347,12 @@ button.alive { background: var(--teal); font-size: 1.15rem; padding: 14px 22px; 
   padding: 12px 14px;
   margin: 12px 0;
 }
+.error .status { margin: 0; color: inherit; }
+.error .status-label { border-color: currentColor; }
+input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"] {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
 .banner, .callout {
   background: var(--teal-soft);
   color: var(--ink);
