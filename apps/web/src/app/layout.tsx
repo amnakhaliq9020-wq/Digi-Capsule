@@ -1,10 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { AccessibilityProvider } from "@/components/Accessibility";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Digi Capsule",
   description: "A private place to keep memories for the people you choose.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

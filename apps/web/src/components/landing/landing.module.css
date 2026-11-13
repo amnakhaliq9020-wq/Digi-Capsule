@@ -387,6 +387,32 @@
 }
 
 @media (max-width: 560px) {
+  .bar,
+  .hero,
+  .section,
+  .vision,
+  .closing,
+  .footerGrid,
+  .copyright {
+    width: min(1120px, calc(100% - 24px));
+  }
+
+  .hero {
+    padding-top: 28px;
+  }
+
+  .presentation {
+    min-height: 260px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions a {
+    flex: 1 1 auto;
+  }
+
   .heroActions a,
   .waitlist button {
     width: 100%;

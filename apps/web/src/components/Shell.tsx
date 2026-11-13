@@ -20,8 +20,8 @@ const links: ReadonlyArray<readonly [string, string, IconName]> = [
 const bottom: ReadonlyArray<readonly [string, string, IconName]> = [
   ["/dashboard", "Home", "home"],
   ["/memories", "Memories", "memories"],
+  ["/check-in", "Check-in", "clock"],
   ["/contacts", "Contacts", "contacts"],
-  ["/deliveries", "Schedule", "calendar"],
 ];
 
 const TimeZoneContext = createContext("UTC");
@@ -68,11 +68,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <form className="search" role="search" action="/memories">
           <label className="sr-only" htmlFor="memory-search">Search memories</label>
           <input id="memory-search" name="q" type="search" placeholder="Search memories" />
-          <button type="submit"><Icon name="search" /> Search</button>
+          <button type="submit"><Icon name="search" /> <span className="label-wide">Search</span></button>
         </form>
         <div className="top-actions">
-          <Link className="button secondary" href="/warnings">Warnings</Link>
-          <Link className="button secondary" href="/account">{name ? name : "Settings"}</Link>
+          <Link className="button secondary label-wide" href="/warnings">Warnings</Link>
+          <Link className="button secondary label-wide" href="/deliveries">Schedule</Link>
+          <Link className="button secondary" href="/account" title={name ? `Signed in as ${name}` : "Settings"}>
+            Settings
+          </Link>
           <button type="button" className="secondary" onClick={() => void api("/v1/auth/logout", { method: "POST" }).then(() => router.replace("/login")).catch(() => router.replace("/login"))}>
             Log out
           </button>
